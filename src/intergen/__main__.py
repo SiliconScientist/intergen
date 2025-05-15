@@ -1,6 +1,7 @@
 from ase.db import connect
 from ase.atoms import Atoms
 from ase.build import fcc111, hcp0001
+from ase.visualize import view
 import copy
 import pandas as pd
 from timeit import default_timer as timer
@@ -8,6 +9,9 @@ from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 import numpy as np
+
+from intergen.config import get_config
+
 
 def id_unique_sites(
     atoms: Atoms,
@@ -36,7 +40,7 @@ def swap_element(atoms: Atoms, index: int, element: str) -> Atoms:
     return new_atoms
 
 
-def enumerate_unique_substitutions(
+def enumerate_unique_swaps(
     atoms: Atoms,
     indices: list[int],
     element: str,
@@ -81,114 +85,63 @@ def delete_duplicate_atoms(
             unique_atoms.append(atoms_list[i])
     return unique_atoms
 
+
 def main():
+    cfg = get_config()
     lattice_constant_df = pd.read_csv(
-        "./LatticeConstantsPure.csv",
+        "assets/pure_metal_lattice_constants.csv",
         index_col=0,
         skiprows=1,
     )
-
-    hcpHostList = [
-        "Ti",
-        "Ru",
-        "Co",
-        "Sc",
-        "Hf",
-        "Zr",
-        "Re",
-        "Os",
-    ]  #'Ti', 'Ru', 'Co', 'Sc', 'Hf', 'Zr', 'Re', 'Os'
-    fccHostList = [
-        "Cu",
-        "Ag",
-        "Au",
-        "Ni",
-        "Pt",
-        "Pd",
-        "Rh",
-        "Ir",
-    ]  #'Cu', 'Ag', 'Au', 'Ni', 'Pt', 'Pd', 'Rh', 'Ir'
-
-    hostSlabs = []
-    for host in fccHostList:
+    pure_atoms = []
+    for host in cfg.structure.fcc_list:
         slab = fcc111(
             host,
-            size=(3, 3, 4),
-            vacuum=10.0,
+            size=cfg.structure.size,
+            vacuum=cfg.structure.vacuum,
             a=lattice_constant_df.loc[host, "FCC_LatticeConstant_PW91_1"],
         )[::-1]
-        hostSlabs.append(slab)
+        pure_atoms.append(slab)
 
-    for host in hcpHostList:
+    for host in cfg.structure.hcp_list:
         slab = hcp0001(
             host,
-            size=(3, 3, 4),
-            vacuum=10.0,
+            size=cfg.structure.size,
+            vacuum=cfg.structure.vacuum,
             a=lattice_constant_df.loc[host, "HCP_LatticeConstant_PW91_1"],
             c=lattice_constant_df.loc[host, "HCP_LatticeConstant_PW91_1"]
             * lattice_constant_df.loc[host, "HCP_c_over_a_PW91_1"],
         )[::-1]
-        hostSlabs.append(slab)
-
-    dopants = [
-        "Cu",
-        "Ag",
-        "Au",
-        "Ni",
-        "Pt",
-        "Pd",
-        "Co",
-        "Rh",
-        "Ir",
-        "Fe",
-        "Ru",
-        "Os",
-        "Mn",
-        "Re",
-        "Cr",
-        "Mo",
-        "W",
-        "V",
-        "Ta",
-        "Ti",
-        "Zr",
-        "Hf",
-        "Sc",
-    ]
-
-    dopingLocations = list(range(0, 18))  # Make 18
-
+        pure_atoms.append(slab)
+    x, y, _ = cfg.structure.size
+    atoms_per_layer = x * y
+    swap_indices = list(
+        range(atoms_per_layer * cfg.generation.layers_to_swap)
+    )  # Assumes top layer atoms have lower value indices.
     start = timer()
-
-    configDB = connect(
-        "configs_TwoLayers_UpToThreeDopants.db"
-    )  # configs_ForOandOH_Pure, configs_ForOandOH, configs_ForOandOH_2Dopant, configs_ForOandOH_1Dopant
+    config_db = connect(cfg.database.path)
     writeToDB = True
-    totNumDope = 3  # =len(surfaceAtoms)
-
-    aseConverter = AseAtomsAdaptor()
-    allSlabs = []
-    surfaceAtomsList = []
+    atoms_list = []
     previousList = []  # May be unnecessary
-    for hostSlab in hostSlabs:
-        if writeToDB:
-            configDB.write(hostSlab)
-        allSlabs.append(hostSlab)
-        for dopant in dopants:
+    for hostSlab in pure_atoms:
+        if not cfg.database.path.exists():
+            config_db.write(cfg.database.path)
+        atoms_list.append(hostSlab)
+        for dopant in cfg.generation.swap_elements:
             # Single atom:
-            previousList = enumerate_unique_substitutions(
-                atoms=hostSlab, indices=dopingLocations, element=dopant
+            previousList = enumerate_unique_swaps(
+                atoms=hostSlab, indices=swap_indices, element=dopant
             )
             for atoms in previousList:
                 if writeToDB:
-                    configDB.write(atoms)
-                allSlabs.append(atoms)
+                    config_db.write(atoms)
+                atoms_list.append(atoms)
             # More atoms:
-            for i in range(1, totNumDope):
+            for i in range(1, cfg.generation.num_swaps):
                 tempList = []
                 for atoms in previousList:
-                    newList = enumerate_unique_substitutions(
-                        atoms=atoms, indices=dopingLocations, element=dopant
+                    newList = enumerate_unique_swaps(
+                        atoms=atoms, indices=swap_indices, element=dopant
                     )
                     #                 newList = duplicateFunction(newList) #This seems to be unnecessary--makes things take a bit longer.
                     for atoms in newList:
@@ -196,15 +149,15 @@ def main():
                 previousList = delete_duplicate_atoms(atoms_list=tempList)
                 for atoms in previousList:
                     if writeToDB:
-                        configDB.write(atoms)
-                    allSlabs.append(atoms)
+                        config_db.write(atoms)
+                    atoms_list.append(atoms)
                     # TODO: delete duplicates here?
 
                 # previousList = uniqueList
     end = timer()
 
     print("Time(s): ", end - start)
-    print("Number of surfaces: ", len(allSlabs))
+    print("Number of surfaces: ", len(atoms_list))
 
 
 if __name__ == "__main__":

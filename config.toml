@@ -1,0 +1,38 @@
+
+[structure]
+hcp_list = []     #"Ti", "Ru", "Co", "Sc", "Hf", "Zr", "Re", "Os"]
+fcc_list = ["Au"] #"Cu", "Ag", "Au", "Ni", "Pt", "Pd", "Rh", "Ir"]
+size = [3, 3, 4]
+vacuum = 10.0
+
+[generation]
+num_swaps = 1
+layers_to_swap = 1
+swap_elements = [
+    "Cu",
+    # "Ag",
+    # "Au",
+    # "Ni",
+    # "Pt",
+    # "Pd",
+    # "Co",
+    # "Rh",
+    # "Ir",
+    # "Fe",
+    # "Ru",
+    # "Os",
+    # "Mn",
+    # "Re",
+    # "Cr",
+    # "Mo",
+    # "W",
+    # "V",
+    # "Ta",
+    # "Ti",
+    # "Zr",
+    # "Hf",
+    # "Sc",
+]
+
+[database]
+path = "fcc_au_cu.db"
