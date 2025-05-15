@@ -1,0 +1,10 @@
+[tool.uv]
+src = "src"
+
+[project]
+name = "intergen"
+version = "0.1.0"
+description = "Flexible interface generator for catalysis, surface science, and materials modeling."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
