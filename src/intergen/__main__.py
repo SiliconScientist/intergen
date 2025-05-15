@@ -32,7 +32,7 @@ def id_unique_sites(
     return unique_unmasked_indices
 
 
-def swap_element(atoms: Atoms, index: int, element: str) -> Atoms:
+def swap_atoms(atoms: Atoms, index: int, element: str) -> Atoms:
     new_atoms = copy.deepcopy(atoms)
     new_symbols = atoms.get_chemical_symbols()
     new_symbols[index] = element
@@ -60,11 +60,11 @@ def enumerate_unique_swaps(
     unique_site_indices = id_unique_sites(
         atoms=atoms,
         indices=indices,
-        element=element,
+        masked_element=element,
     )
     atoms_list = []
     for index in unique_site_indices:
-        new_atoms = swap_element(atoms=atoms, index=index, element=element)
+        new_atoms = swap_atoms(atoms=atoms, index=index, element=element)
         atoms_list.append(new_atoms)
     return atoms_list
 
@@ -84,6 +84,28 @@ def delete_duplicate_atoms(
         if not is_duplicate:
             unique_atoms.append(atoms_list[i])
     return unique_atoms
+
+
+def get_element_swaps(
+    atoms: Atoms,
+    indices: list[int],
+    element: str,
+    num_swaps: int,
+) -> list[Atoms]:
+    """Generates all symmetry-unique structures with up to `num_swaps` substitutions of the given element at the specified indices."""
+    current_structs = enumerate_unique_swaps(atoms, indices, element)
+    all_structs = current_structs.copy()
+
+    for _ in range(1, num_swaps):
+        next_structs = []
+        for struct in current_structs:
+            swaps = enumerate_unique_swaps(struct, indices, element)
+            next_structs.extend(swaps)
+
+        current_structs = delete_duplicate_atoms(next_structs)
+        all_structs.extend(current_structs)
+
+    return delete_duplicate_atoms(all_structs)
 
 
 def main():
@@ -120,44 +142,26 @@ def main():
     )  # Assumes top layer atoms have lower value indices.
     start = timer()
     config_db = connect(cfg.database.path)
-    writeToDB = True
+    write_to_db = True
     atoms_list = []
-    previousList = []  # May be unnecessary
-    for hostSlab in pure_atoms:
+    for atoms in pure_atoms:
         if not cfg.database.path.exists():
-            config_db.write(cfg.database.path)
-        atoms_list.append(hostSlab)
-        for dopant in cfg.generation.swap_elements:
-            # Single atom:
-            previousList = enumerate_unique_swaps(
-                atoms=hostSlab, indices=swap_indices, element=dopant
+            config_db.write(atoms)
+        atoms_list.append(atoms)
+        for element in cfg.generation.swap_elements:
+            element_swaps = get_element_swaps(
+                atoms=atoms,
+                indices=swap_indices,
+                element=element,
+                num_swaps=cfg.generation.num_swaps,
             )
-            for atoms in previousList:
-                if writeToDB:
-                    config_db.write(atoms)
-                atoms_list.append(atoms)
-            # More atoms:
-            for i in range(1, cfg.generation.num_swaps):
-                tempList = []
-                for atoms in previousList:
-                    newList = enumerate_unique_swaps(
-                        atoms=atoms, indices=swap_indices, element=dopant
-                    )
-                    #                 newList = duplicateFunction(newList) #This seems to be unnecessary--makes things take a bit longer.
-                    for atoms in newList:
-                        tempList.append(atoms)
-                previousList = delete_duplicate_atoms(atoms_list=tempList)
-                for atoms in previousList:
-                    if writeToDB:
-                        config_db.write(atoms)
-                    atoms_list.append(atoms)
-                    # TODO: delete duplicates here?
-
-                # previousList = uniqueList
+            for swapped_atoms in element_swaps:
+                if write_to_db:
+                    config_db.write(swapped_atoms)
+                atoms_list.append(swapped_atoms)
     end = timer()
-
-    print("Time(s): ", end - start)
-    print("Number of surfaces: ", len(atoms_list))
+    print("Time(s):", end - start)
+    print("Number of surfaces:", len(atoms_list))
 
 
 if __name__ == "__main__":
