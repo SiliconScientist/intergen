@@ -71,11 +71,16 @@ def enumerate_unique_swaps(
 
 def delete_duplicate_atoms(
     atoms_list,
+    atoms_per_layer: int,
     converter: AseAtomsAdaptor = AseAtomsAdaptor(),
     matcher: StructureMatcher = StructureMatcher(),
 ) -> list[Atoms]:
     """Removes duplicates ASE Atoms objects based on PyMatGen structure matching."""
-    structures = [converter.get_structure(atoms) for atoms in atoms_list]
+    structures = []
+    for atoms in atoms_list:
+        atoms.set_pbc(True)
+        structure = converter.get_structure(atoms)[:atoms_per_layer]
+        structures.append(structure)
     unique_atoms = []
     for i, candidate in enumerate(structures):
         is_duplicate = any(
@@ -88,6 +93,7 @@ def delete_duplicate_atoms(
 
 def get_element_swaps(
     atoms: Atoms,
+    atoms_per_layer: int,
     indices: list[int],
     element: str,
     num_swaps: int,
@@ -101,11 +107,17 @@ def get_element_swaps(
         for struct in current_structs:
             swaps = enumerate_unique_swaps(struct, indices, element)
             next_structs.extend(swaps)
-
-        current_structs = delete_duplicate_atoms(next_structs)
+        current_structs = delete_duplicate_atoms(
+            next_structs, atoms_per_layer=atoms_per_layer
+        )
         all_structs.extend(current_structs)
+    return all_structs
 
-    return delete_duplicate_atoms(all_structs)
+
+def get_layer_indices(layer: int, atoms_per_layer: int = 9) -> list[int]:
+    start = layer * atoms_per_layer
+    end = (layer + 1) * atoms_per_layer
+    return list(range(start, end))
 
 
 def main():
@@ -151,6 +163,7 @@ def main():
         for element in cfg.generation.swap_elements:
             element_swaps = get_element_swaps(
                 atoms=atoms,
+                atoms_per_layer=atoms_per_layer,
                 indices=swap_indices,
                 element=element,
                 num_swaps=cfg.generation.num_swaps,
