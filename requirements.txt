@@ -1,0 +1,8 @@
+ase==3.22.1
+numpy==1.25.0
+acat
+tomli
+pydantic
+pymatgen
+acat
+-e .
