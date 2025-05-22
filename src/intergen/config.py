@@ -22,10 +22,17 @@ class DatabaseConfig(BaseModel):
     path: Path
 
 
+class AdsorbateConfig(BaseModel):
+    species: str
+    coords: list[tuple[float, float, float]]
+    tag: int
+
+
 class Config(BaseModel):
     structure: StructureConfig
     generation: GenerationConfig
     database: DatabaseConfig
+    adsorbate: AdsorbateConfig
 
 
 def get_config():

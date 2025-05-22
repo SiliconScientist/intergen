@@ -18,9 +18,11 @@ def main():
     site_finder = AdsorbateSiteFinder(slab=slab)
     site_coordinates = site_finder.find_adsorption_sites(symm_reduce=True)
     adsorbate = Molecule(
-        species="OH",
-        coords=[(0, 0, 0), (0, 0, 0.98)],
-        site_properties={"tags": [0, 0]},
+        species=cfg.adsorbate.species,
+        coords=cfg.adsorbate.coords,
+        site_properties={
+            "tags": [cfg.adsorbate.tag for _ in range(len(cfg.adsorbate.coords))]
+        },
     )
     structure = site_finder.add_adsorbate(
         molecule=adsorbate, ads_coord=site_coordinates["ontop"][0]
