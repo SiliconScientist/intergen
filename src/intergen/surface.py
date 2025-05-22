@@ -4,6 +4,7 @@ import pandas as pd
 from ase.db import connect
 from ase.atoms import Atoms
 from ase.build import fcc111, hcp0001
+from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.analysis.structure_matcher import StructureMatcher
@@ -112,27 +113,37 @@ def enumerate_unique_swaps(
     return atoms_list
 
 
-def delete_duplicate_atoms(
-    cfg: Config,
-    atoms_list,
-    converter: AseAtomsAdaptor = AseAtomsAdaptor(),
-    matcher: StructureMatcher = StructureMatcher(),
-) -> list[Atoms]:
-    """Removes duplicates ASE Atoms objects based on PyMatGen structure matching."""
-    atoms_per_layer = get_atoms_per_layer(cfg)
+def get_substructure(structure: Structure, indices: list[int]) -> Structure:
+    """Returns a substructure of the given structure based on the provided indices."""
+    return Structure.from_sites([structure[i] for i in indices])
+
+
+def prepare_for_pymatgen(
+    atoms_list: list[Atoms], converter: AseAtomsAdaptor = AseAtomsAdaptor()
+) -> list[Structure]:
+    """Converts a list of ASE Atoms objects to PyMatGen Structure objects,
+    setting periodic boundary conditions before conversion."""
     structures = []
     for atoms in atoms_list:
         atoms.set_pbc(True)
-        structure = converter.get_structure(atoms)[:atoms_per_layer]
+        structure = converter.get_structure(atoms)
         structures.append(structure)
-    unique_atoms = []
+    return structures
+
+
+def find_unique_structures(
+    structures: list[Structure],
+    matcher: StructureMatcher = StructureMatcher(),
+) -> list[int]:
+    """Finds unique structures in a list of structures using a StructureMatcher."""
+    unique_indices = []
     for i, candidate in enumerate(structures):
         is_duplicate = any(
-            matcher.fit(candidate, comparison) for comparison in structures[i + 1 :]
+            matcher.fit(candidate, structures[j]) for j in unique_indices
         )
         if not is_duplicate:
-            unique_atoms.append(atoms_list[i])
-    return unique_atoms
+            unique_indices.append(i)
+    return unique_indices
 
 
 def get_element_swaps(
@@ -141,18 +152,29 @@ def get_element_swaps(
     indices: list[int],
     element: str,
     num_swaps: int,
+    converter: AseAtomsAdaptor = AseAtomsAdaptor(),
 ) -> list[Atoms]:
     """Generates all symmetry-unique structures with up to `num_swaps` substitutions of the given element at the specified indices."""
+    atoms_per_layer = get_atoms_per_layer(cfg)
+    comparison_indices = range(atoms_per_layer)
     current_structs = enumerate_unique_swaps(atoms, indices, element)
-    all_structs = current_structs.copy()
+    all_atoms = current_structs.copy()
     for _ in range(1, num_swaps):
         next_structs = []
         for struct in current_structs:
             swaps = enumerate_unique_swaps(struct, indices, element)
             next_structs.extend(swaps)
-        current_structs = delete_duplicate_atoms(cfg=cfg, atoms_list=next_structs)
-        all_structs.extend(current_structs)
-    return all_structs
+        structures = prepare_for_pymatgen(next_structs)
+        substructures = [
+            get_substructure(structure, indices=comparison_indices)
+            for structure in structures
+        ]
+        unique_indices = find_unique_structures(structures=substructures)
+        unique_structures = [structures[i] for i in unique_indices]
+        unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
+        all_atoms.extend(unique_atoms)
+        current_structs = unique_atoms
+    return all_atoms
 
 
 def mutate_via_swaps(
