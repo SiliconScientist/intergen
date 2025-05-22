@@ -16,11 +16,8 @@ def main():
     cfg = get_config()
     matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
     pure_atoms = build_pure_surfaces(cfg=cfg)
-    # TODO: Inject index selector function to support alternative selection strategies
     index_selector_fn = naive_surface_index_selector
     swap_indices = index_selector_fn(cfg=cfg)
-
-    # TODO: Inject surface generation method to support multiple generation strategies
     surface_generator = mutate_via_swaps
     atoms_list = surface_generator(
         cfg=cfg,
