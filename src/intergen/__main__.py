@@ -28,7 +28,6 @@ def main():
         pure_atoms=pure_atoms,
         matcher=matcher,
     )
-    print(f"Generated {len(atoms_list)} unique structures.")
     adsorbate = Molecule(
         species=cfg.adsorbate.species,
         coords=cfg.adsorbate.coords,
@@ -39,7 +38,6 @@ def main():
     atoms_list = get_adsorbate_structures(
         cfg=cfg, atoms_list=atoms_list, adsorbate=adsorbate, matcher=matcher
     )
-    print(f"Generated {len(atoms_list)} unique binding sites.")
 
 
 if __name__ == "__main__":
