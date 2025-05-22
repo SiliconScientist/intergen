@@ -14,7 +14,6 @@ from intergen.adsorbate import get_adsorbate_structures
 
 def main():
     cfg = get_config()
-    converter = AseAtomsAdaptor()
     matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
     pure_atoms = build_pure_surfaces(cfg=cfg)
     # TODO: Inject index selector function to support alternative selection strategies
