@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Literal, Union, Optional
 
 from pydantic import BaseModel
-from tomli import load
+from tomllib import load
 
 
 class StructureConfig(BaseModel):

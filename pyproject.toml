@@ -13,11 +13,10 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "acat>=1.7.1",
-    "ase==3.22.1",
+    "ase>=3.25.0",
     "intergen",
-    "numpy==1.25.0",
+    "numpy>=2.2.6",
     "pydantic>=2.11.4",
     "pymatgen>=2025.5.2",
-    "tomli>=2.2.1",
+    "toml>=0.10.2",
 ]

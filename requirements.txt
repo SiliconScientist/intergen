@@ -1,8 +1,6 @@
-ase==3.22.1
-numpy==1.25.0
-acat
-tomli
-pydantic
+ase
+numpy
 pymatgen
-acat
+toml
+pydantic
 -e .
