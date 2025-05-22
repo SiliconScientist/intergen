@@ -2,6 +2,7 @@ from ase.visualize import view
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Molecule
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
+from pymatgen.analysis.structure_matcher import StructureMatcher
 from intergen.config import get_config
 from intergen.surface import (
     build_pure_surfaces,
@@ -17,6 +18,7 @@ from intergen.surface import (
 def main():
     cfg = get_config()
     converter = AseAtomsAdaptor()
+    matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
     pure_atoms = build_pure_surfaces(cfg=cfg)
     # TODO: Inject index selector function to support alternative selection strategies
     index_selector_fn = naive_surface_index_selector
@@ -28,6 +30,7 @@ def main():
         cfg=cfg,
         swap_indices=swap_indices,
         pure_atoms=pure_atoms,
+        matcher=matcher,
     )
     print(f"Generated {len(atoms_list)} unique structures.")
     slabs = prepare_for_pymatgen(atoms_list)
@@ -43,9 +46,12 @@ def main():
             },
         )
         structures = []
-        for site in site_coordinates["ontop"]:
-            structure = site_finder.add_adsorbate(molecule=adsorbate, ads_coord=site)
-            structures.append(structure)
+        for site in cfg.adsorbate.sites:
+            for ads_coords in site_coordinates[site]:
+                structure = site_finder.add_adsorbate(
+                    molecule=adsorbate, ads_coord=ads_coords
+                )
+                structures.append(structure)
         adsorbate_indices = [i for i in range(len(structure))][-2:]
         surface_indices = list(range(get_atoms_per_layer(cfg=cfg)))
         comparison_indices = surface_indices + adsorbate_indices
@@ -53,7 +59,9 @@ def main():
             get_substructure(structure, indices=comparison_indices)
             for structure in structures
         ]
-        unique_indices = find_unique_structures(structures=subsubstructures)
+        unique_indices = find_unique_structures(
+            structures=subsubstructures, matcher=matcher
+        )
         unique_structures = [structures[i] for i in unique_indices]
         unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
         all_binding_sites.extend(unique_atoms)

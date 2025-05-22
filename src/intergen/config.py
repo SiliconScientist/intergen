@@ -22,9 +22,17 @@ class DatabaseConfig(BaseModel):
     path: Path
 
 
+class MatcherConfig(BaseModel):
+    ltol: float
+    stol: float
+    angle_tol: float
+
+
 class AdsorbateConfig(BaseModel):
+    matcher: MatcherConfig
     species: str
     coords: list[tuple[float, float, float]]
+    sites: list[str]
     tag: int
 
 

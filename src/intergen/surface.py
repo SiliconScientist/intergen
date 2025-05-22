@@ -153,8 +153,12 @@ def get_element_swaps(
     element: str,
     num_swaps: int,
     converter: AseAtomsAdaptor = AseAtomsAdaptor(),
+    matcher: StructureMatcher = StructureMatcher(),
 ) -> list[Atoms]:
     """Generates all symmetry-unique structures with up to `num_swaps` substitutions of the given element at the specified indices."""
+    if num_swaps == 0:
+        return []
+
     atoms_per_layer = get_atoms_per_layer(cfg)
     comparison_indices = range(atoms_per_layer)
     current_structs = enumerate_unique_swaps(atoms, indices, element)
@@ -169,7 +173,9 @@ def get_element_swaps(
             get_substructure(structure, indices=comparison_indices)
             for structure in structures
         ]
-        unique_indices = find_unique_structures(structures=substructures)
+        unique_indices = find_unique_structures(
+            structures=substructures, matcher=matcher
+        )
         unique_structures = [structures[i] for i in unique_indices]
         unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
         all_atoms.extend(unique_atoms)
@@ -182,6 +188,7 @@ def mutate_via_swaps(
     pure_atoms: list[Atoms],
     swap_indices: list[int],
     write_to_db: bool = True,
+    matcher: StructureMatcher = StructureMatcher(),
 ) -> list[Atoms]:
     config_db = connect(cfg.database.path) if write_to_db else None
     atoms_list = []
@@ -196,6 +203,7 @@ def mutate_via_swaps(
                 indices=swap_indices,
                 element=element,
                 num_swaps=cfg.generation.num_swaps,
+                matcher=matcher,
             )
             for swapped_atoms in element_swaps:
                 if write_to_db:
