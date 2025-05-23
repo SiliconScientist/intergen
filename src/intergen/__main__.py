@@ -1,3 +1,4 @@
+from ase.db import connect
 from ase.visualize import view
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Molecule
@@ -14,6 +15,9 @@ from intergen.adsorbate import get_adsorbate_structures
 
 def main():
     cfg = get_config()
+    if cfg.database.path.exists():
+        print(f"Output already exists at {cfg.database.path}. Skipping generation.")
+        return
     matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
     pure_atoms = build_pure_surfaces(cfg=cfg)
     index_selector_fn = naive_surface_index_selector
@@ -35,6 +39,10 @@ def main():
     atoms_list = get_adsorbate_structures(
         cfg=cfg, atoms_list=atoms_list, adsorbate=adsorbate, matcher=matcher
     )
+    config_db = connect(cfg.database.path)
+    for atoms in atoms_list:
+        config_db.write(atoms)
+    print(f"Wrote {len(atoms_list)} structures to {cfg.database.path}")
 
 
 if __name__ == "__main__":

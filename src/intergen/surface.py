@@ -187,14 +187,10 @@ def mutate_via_swaps(
     cfg: Config,
     pure_atoms: list[Atoms],
     swap_indices: list[int],
-    write_to_db: bool = True,
     matcher: StructureMatcher = StructureMatcher(),
 ) -> list[Atoms]:
-    config_db = connect(cfg.database.path) if write_to_db else None
     atoms_list = []
     for atoms in pure_atoms:
-        if not cfg.database.path.exists():
-            config_db.write(atoms)
         atoms_list.append(atoms)
         for element in cfg.generation.swap_elements:
             element_swaps = get_element_swaps(
@@ -206,7 +202,5 @@ def mutate_via_swaps(
                 matcher=matcher,
             )
             for swapped_atoms in element_swaps:
-                if write_to_db:
-                    config_db.write(swapped_atoms)
                 atoms_list.append(swapped_atoms)
     return atoms_list

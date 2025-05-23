@@ -178,3 +178,9 @@ cython_debug/
 
 # VSCode settings
 .vscode/
+
+# Data files
+data/
+
+# Jupyter notebooks
+*.ipynb
