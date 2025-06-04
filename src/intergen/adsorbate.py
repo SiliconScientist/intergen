@@ -47,7 +47,9 @@ def get_adsorbate_structures(
         structures = add_adsorbates(cfg=cfg, structure=slab, adsorbate=adsorbate)
         adsorbate_indices = get_adsorbate_indices(structure=slab, adsorbate=adsorbate)
         surface_indices = list(range(get_atoms_per_layer(cfg=cfg)))
-        comparison_indices = surface_indices + adsorbate_indices
+        comparison_indices = (
+            surface_indices + adsorbate_indices[0:1]
+        )  # Why [0:1]? -> Only use binding atom index for structure matching
         subsubstructures = [
             get_substructure(structure, indices=comparison_indices)
             for structure in structures
