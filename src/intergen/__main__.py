@@ -8,7 +8,8 @@ from intergen.config import get_config
 from intergen.surface import (
     build_pure_surfaces,
     naive_surface_index_selector,
-    mutate_via_swaps,
+    iterative_swaps,
+    get_atoms_per_layer,
 )
 from intergen.adsorbate import get_adsorbate_structures
 
@@ -19,16 +20,22 @@ def main():
         print(f"Output already exists at {cfg.database.path}. Skipping generation.")
         return
     matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
-    pure_atoms = build_pure_surfaces(cfg=cfg)
+    surface_generator = iterative_swaps
     index_selector_fn = naive_surface_index_selector
     swap_indices = index_selector_fn(cfg=cfg)
-    surface_generator = mutate_via_swaps
-    atoms_list = surface_generator(
-        cfg=cfg,
-        swap_indices=swap_indices,
-        pure_atoms=pure_atoms,
+    atoms_list = []
+    pure_atoms = build_pure_surfaces(cfg=cfg)
+    atoms_list.extend(pure_atoms)
+    atoms_per_layer = get_atoms_per_layer(cfg)
+    new_atoms_list = surface_generator(
+        atoms_list=pure_atoms,
+        indices=swap_indices,
+        element=cfg.generation.swap_elements[0],
+        num_swaps=cfg.generation.num_swaps,
+        atoms_per_layer=atoms_per_layer,
         matcher=matcher,
     )
+    atoms_list.extend(new_atoms_list)
     adsorbate = Molecule(
         species=cfg.adsorbate.species,
         coords=cfg.adsorbate.coords,

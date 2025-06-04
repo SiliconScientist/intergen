@@ -146,41 +146,79 @@ def find_unique_structures(
     return unique_indices
 
 
-def get_element_swaps(
-    cfg: Config,
-    atoms: Atoms,
-    indices: list[int],
-    element: str,
-    num_swaps: int,
+def get_unique_atoms(
+    atoms_list: list[Atoms],
+    comparison_indices: list[int],
     converter: AseAtomsAdaptor = AseAtomsAdaptor(),
     matcher: StructureMatcher = StructureMatcher(),
 ) -> list[Atoms]:
-    """Generates all symmetry-unique structures with up to `num_swaps` substitutions of the given element at the specified indices."""
-    if num_swaps == 0:
-        return []
+    structures = prepare_for_pymatgen(atoms_list)
+    substructures = [
+        get_substructure(structure, indices=comparison_indices)
+        for structure in structures
+    ]
+    unique_indices = find_unique_structures(structures=substructures, matcher=matcher)
+    unique_structures = [structures[i] for i in unique_indices]
+    unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
+    return unique_atoms
 
-    atoms_per_layer = get_atoms_per_layer(cfg)
+
+def get_element_swaps(
+    atoms: Atoms,
+    indices: list[int],
+    element: str,
+    atoms_per_layer: int,
+    converter: AseAtomsAdaptor = AseAtomsAdaptor(),
+    matcher: StructureMatcher = StructureMatcher(),
+) -> list[Atoms]:
+    """Returns symmetry-unique structures from a single round of element substitutions."""
+    swapped_structs = enumerate_unique_swaps(
+        atoms=atoms, indices=indices, element=element
+    )
+    structures = prepare_for_pymatgen(swapped_structs)
     comparison_indices = range(atoms_per_layer)
-    current_structs = enumerate_unique_swaps(atoms, indices, element)
-    all_atoms = current_structs.copy()
-    for _ in range(1, num_swaps):
-        next_structs = []
-        for struct in current_structs:
-            swaps = enumerate_unique_swaps(struct, indices, element)
-            next_structs.extend(swaps)
-        structures = prepare_for_pymatgen(next_structs)
-        substructures = [
-            get_substructure(structure, indices=comparison_indices)
-            for structure in structures
-        ]
-        unique_indices = find_unique_structures(
-            structures=substructures, matcher=matcher
-        )
-        unique_structures = [structures[i] for i in unique_indices]
-        unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
-        all_atoms.extend(unique_atoms)
-        current_structs = unique_atoms
-    return all_atoms
+    substructures = [
+        get_substructure(structure, indices=comparison_indices)
+        for structure in structures
+    ]
+    unique_indices = find_unique_structures(structures=substructures, matcher=matcher)
+    unique_structures = [structures[i] for i in unique_indices]
+    unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
+    return unique_atoms
+
+
+def iterative_swaps(
+    atoms_list: list[Atoms],
+    indices: list[int],
+    element: str,
+    num_swaps: int,
+    atoms_per_layer: int,
+    matcher: StructureMatcher = StructureMatcher(),
+) -> list[Atoms]:
+    all_atoms = []
+    current_generation = atoms_list
+    for _ in range(num_swaps):
+        next_generation = []
+        for atoms in current_generation:
+            swaps = enumerate_unique_swaps(
+                atoms=atoms,
+                indices=indices,
+                element=element,
+            )
+            unique_atoms = get_unique_atoms(
+                atoms_list=swaps,
+                comparison_indices=range(atoms_per_layer),
+                matcher=matcher,
+            )
+            next_generation.extend(unique_atoms)
+        all_atoms.extend(next_generation)
+        current_generation = next_generation
+    unique_atoms = get_unique_atoms(
+        atoms_list=all_atoms,
+        comparison_indices=range(atoms_per_layer),
+        matcher=matcher,
+    )
+    return unique_atoms
 
 
 def mutate_via_swaps(
