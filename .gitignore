@@ -184,3 +184,8 @@ data/
 
 # Jupyter notebooks
 *.ipynb
+
+# HPC files
+full_run.sh
+dev_run.sh
+slurm_output/
