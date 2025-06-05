@@ -86,6 +86,7 @@ def swap_atoms(atoms: Atoms, index: int, element: str) -> Atoms:
 
 def enumerate_unique_swaps(
     atoms: Atoms,
+    host_element: str,
     indices: list[int],
     element: str,
 ) -> list[Atoms]:
@@ -107,9 +108,11 @@ def enumerate_unique_swaps(
         masked_element=element,
     )
     atoms_list = []
+    symbols = atoms.get_chemical_symbols()
     for index in unique_site_indices:
-        new_atoms = swap_atoms(atoms=atoms, index=index, element=element)
-        atoms_list.append(new_atoms)
+        if symbols[index] == host_element:
+            new_atoms = swap_atoms(atoms=atoms, index=index, element=element)
+            atoms_list.append(new_atoms)
     return atoms_list
 
 
@@ -188,20 +191,23 @@ def get_element_swaps(
 
 
 def iterative_swaps(
-    atoms_list: list[Atoms],
+    cfg: Config,
+    atoms: list[Atoms],
+    host_element: str,
     indices: list[int],
-    element: str,
-    num_swaps: int,
     atoms_per_layer: int,
     matcher: StructureMatcher = StructureMatcher(),
+    only_last_generation: bool = False,
 ) -> list[Atoms]:
     all_atoms = []
-    current_generation = atoms_list
-    for _ in range(num_swaps):
+    current_generation = [atoms]
+    for i, element in enumerate(cfg.generation.swap_plan):
+        last_generation = i == len(cfg.generation.swap_plan) - 1
         next_generation = []
         for atoms in current_generation:
             swaps = enumerate_unique_swaps(
                 atoms=atoms,
+                host_element=host_element,
                 indices=indices,
                 element=element,
             )
@@ -211,7 +217,10 @@ def iterative_swaps(
                 matcher=matcher,
             )
             next_generation.extend(unique_atoms)
-        all_atoms.extend(next_generation)
+        if last_generation and only_last_generation:
+            all_atoms = next_generation
+        elif not only_last_generation:
+            all_atoms.extend(next_generation)
         current_generation = next_generation
     unique_atoms = get_unique_atoms(
         atoms_list=all_atoms,

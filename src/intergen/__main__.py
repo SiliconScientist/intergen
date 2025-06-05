@@ -25,17 +25,19 @@ def main():
     swap_indices = index_selector_fn(cfg=cfg)
     atoms_list = []
     pure_atoms = build_pure_surfaces(cfg=cfg)
-    atoms_list.extend(pure_atoms)
     atoms_per_layer = get_atoms_per_layer(cfg)
-    new_atoms_list = surface_generator(
-        atoms_list=pure_atoms,
-        indices=swap_indices,
-        element=cfg.generation.swap_elements[0],
-        num_swaps=cfg.generation.num_swaps,
-        atoms_per_layer=atoms_per_layer,
-        matcher=matcher,
-    )
-    atoms_list.extend(new_atoms_list)
+    for atoms in pure_atoms:
+        host_element = atoms.get_chemical_symbols()[0]
+        new_atoms_list = surface_generator(
+            cfg=cfg,
+            atoms=atoms,
+            host_element=host_element,
+            indices=swap_indices,
+            atoms_per_layer=atoms_per_layer,
+            matcher=matcher,
+            only_last_generation=True,
+        )
+        atoms_list.extend(new_atoms_list)
     adsorbate = Molecule(
         species=cfg.adsorbate.species,
         coords=cfg.adsorbate.coords,
