@@ -1,8 +1,6 @@
 from ase.db import connect
 from ase.visualize import view
-from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.core import Molecule
-from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from intergen.config import get_config
 from intergen.surface import (
@@ -10,6 +8,7 @@ from intergen.surface import (
     naive_surface_index_selector,
     iterative_swaps,
     get_atoms_per_layer,
+    get_swap_plans,
 )
 from intergen.adsorbate import get_adsorbate_structures
 
@@ -28,16 +27,22 @@ def main():
     atoms_per_layer = get_atoms_per_layer(cfg)
     for atoms in pure_atoms:
         host_element = atoms.get_chemical_symbols()[0]
-        new_atoms_list = surface_generator(
+        swap_plans = get_swap_plans(
             cfg=cfg,
-            atoms=atoms,
+            num_swaps=cfg.generation.num_swaps,
             host_element=host_element,
-            indices=swap_indices,
-            atoms_per_layer=atoms_per_layer,
-            matcher=matcher,
-            only_last_generation=True,
         )
-        atoms_list.extend(new_atoms_list)
+        for swap_plan in swap_plans:
+            new_atoms_list = surface_generator(
+                atoms=atoms,
+                host_element=host_element,
+                swap_plan=swap_plan,
+                indices=swap_indices,
+                atoms_per_layer=atoms_per_layer,
+                matcher=matcher,
+                only_last_generation=True,
+            )
+            atoms_list.extend(new_atoms_list)
     adsorbate = Molecule(
         species=cfg.adsorbate.species,
         coords=cfg.adsorbate.coords,

@@ -14,7 +14,8 @@ class StructureConfig(BaseModel):
 
 class GenerationConfig(BaseModel):
     layers_to_swap: int
-    swap_plan: list[str]
+    num_swaps: int
+    swap_elements: list[str]
 
 
 class DatabaseConfig(BaseModel):

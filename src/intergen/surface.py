@@ -4,6 +4,7 @@ import pandas as pd
 from ase.db import connect
 from ase.atoms import Atoms
 from ase.build import fcc111, hcp0001
+from itertools import combinations
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -190,10 +191,19 @@ def get_element_swaps(
     return unique_atoms
 
 
+def get_swap_plans(cfg: Config, num_swaps: int, host_element: str) -> list[list[str]]:
+    swap_combinations = [
+        list(pair)
+        for pair in combinations(cfg.generation.swap_elements, num_swaps)
+        if host_element not in pair
+    ]
+    return swap_combinations
+
+
 def iterative_swaps(
-    cfg: Config,
     atoms: list[Atoms],
     host_element: str,
+    swap_plan: list[str],
     indices: list[int],
     atoms_per_layer: int,
     matcher: StructureMatcher = StructureMatcher(),
@@ -201,8 +211,8 @@ def iterative_swaps(
 ) -> list[Atoms]:
     all_atoms = []
     current_generation = [atoms]
-    for i, element in enumerate(cfg.generation.swap_plan):
-        last_generation = i == len(cfg.generation.swap_plan) - 1
+    for i, element in enumerate(swap_plan):
+        last_generation = i == len(swap_plan) - 1
         next_generation = []
         for atoms in current_generation:
             swaps = enumerate_unique_swaps(
