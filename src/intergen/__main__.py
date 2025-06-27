@@ -40,7 +40,7 @@ def main():
                 indices=swap_indices,
                 atoms_per_layer=atoms_per_layer,
                 matcher=matcher,
-                only_last_generation=True,
+                only_last_generation=cfg.generation.only_last_generation,
             )
             atoms_list.extend(new_atoms_list)
     adsorbate = Molecule(

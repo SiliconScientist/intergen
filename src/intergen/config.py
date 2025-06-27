@@ -16,6 +16,7 @@ class GenerationConfig(BaseModel):
     layers_to_swap: int
     num_swaps: int
     swap_elements: list[str]
+    only_last_generation: bool
 
 
 class DatabaseConfig(BaseModel):

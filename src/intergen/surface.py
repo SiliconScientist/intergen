@@ -41,7 +41,7 @@ def build_pure_surfaces(cfg: Config) -> list[Atoms]:
             host,
             size=cfg.structure.size,
             vacuum=cfg.structure.vacuum,
-            a=lattice_constant_df.loc[host, "FCC_LatticeConstant_PW91_1"],
+            a=lattice_constant_df.loc[host, "FCC_LatticeConstant_PBE+TS_1"],
         )[::-1]
         pure_atoms.append(slab)
 
