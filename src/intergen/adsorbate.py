@@ -29,7 +29,9 @@ def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int
     """Returns the indices of the adsorbate in the structure."""
     structure_len = len(structure)
     adsorbate_len = len(adsorbate)
-    adsorbate_indices = list(range(structure_len, structure_len + adsorbate_len))
+    adsorbate_indices = list(
+        range(structure_len - 1, structure_len + adsorbate_len - 1)
+    )
     return adsorbate_indices
 
 
