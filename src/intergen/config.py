@@ -35,6 +35,7 @@ class AdsorbateConfig(BaseModel):
     coords: list[tuple[float, float, float]]
     sites: list[str]
     tag: int
+    surface_layers_for_matching: int = 2
 
 
 class Config(BaseModel):

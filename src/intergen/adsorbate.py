@@ -46,9 +46,12 @@ def get_adsorbate_structures(
     """Generates all unique structures with the specified adsorbate."""
     slabs = prepare_for_pymatgen(atoms_list)
     atoms_list = []
+    atoms_per_layer = get_atoms_per_layer(cfg=cfg)
+    slab_comparison_count = atoms_per_layer * cfg.adsorbate.surface_layers_for_matching
     for slab in slabs:
         structures = add_adsorbates(cfg=cfg, structure=slab, adsorbate=adsorbate)
-        surface_indices = list(range(get_atoms_per_layer(cfg=cfg)))
+        max_slab_index = min(len(slab), slab_comparison_count)
+        surface_indices = list(range(max_slab_index))
         subsubstructures = []
         for structure in structures:
             adsorbate_indices = get_adsorbate_indices(
