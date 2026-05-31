@@ -26,12 +26,13 @@ def add_adsorbates(cfg: Config, structure, adsorbate: Molecule) -> list[Structur
 
 
 def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int]:
-    """Returns the indices of the adsorbate in the structure."""
+    """Returns the indices of the adsorbate in the structure.
+
+    The provided structure must already include the adsorbate appended to the slab.
+    """
     structure_len = len(structure)
     adsorbate_len = len(adsorbate)
-    adsorbate_indices = list(
-        range(structure_len - 1, structure_len + adsorbate_len - 1)
-    )
+    adsorbate_indices = list(range(structure_len - adsorbate_len, structure_len))
     return adsorbate_indices
 
 
@@ -47,15 +48,18 @@ def get_adsorbate_structures(
     atoms_list = []
     for slab in slabs:
         structures = add_adsorbates(cfg=cfg, structure=slab, adsorbate=adsorbate)
-        adsorbate_indices = get_adsorbate_indices(structure=slab, adsorbate=adsorbate)
         surface_indices = list(range(get_atoms_per_layer(cfg=cfg)))
-        comparison_indices = (
-            surface_indices + adsorbate_indices[0:1]
-        )  # Why [0:1]? -> Only use binding atom index for structure matching
-        subsubstructures = [
-            get_substructure(structure, indices=comparison_indices)
-            for structure in structures
-        ]
+        subsubstructures = []
+        for structure in structures:
+            adsorbate_indices = get_adsorbate_indices(
+                structure=structure, adsorbate=adsorbate
+            )
+            comparison_indices = (
+                surface_indices + adsorbate_indices[0:1]
+            )  # Why [0:1]? -> Only use binding atom index for structure matching
+            subsubstructures.append(
+                get_substructure(structure, indices=comparison_indices)
+            )
         unique_indices = find_unique_structures(
             structures=subsubstructures, matcher=matcher
         )
