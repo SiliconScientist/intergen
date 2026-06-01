@@ -13,6 +13,12 @@ from intergen.surface import (
 from intergen.adsorbate import get_adsorbate_structures
 
 
+def get_initial_atoms_list(pure_atoms, only_last_generation):
+    if only_last_generation:
+        return []
+    return list(pure_atoms)
+
+
 def main():
     cfg = get_config()
     if cfg.database.path.exists():
@@ -22,9 +28,11 @@ def main():
     surface_generator = iterative_swaps
     index_selector_fn = naive_surface_index_selector
     swap_indices = index_selector_fn(cfg=cfg)
-    atoms_list = []
     pure_atoms = build_pure_surfaces(cfg=cfg)
-    atoms_list.extend(pure_atoms)
+    atoms_list = get_initial_atoms_list(
+        pure_atoms=pure_atoms,
+        only_last_generation=cfg.generation.only_last_generation,
+    )
     atoms_per_layer = get_atoms_per_layer(cfg)
     for atoms in pure_atoms:
         host_element = atoms.get_chemical_symbols()[0]
