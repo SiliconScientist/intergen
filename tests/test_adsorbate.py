@@ -7,7 +7,37 @@ from pymatgen.core import Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from intergen.adsorbate import get_adsorbate_comparison_indices
+from intergen.config import Config
 from intergen.surface import find_unique_structures, get_substructure
+
+
+class TestConfig(unittest.TestCase):
+    def test_adsorbate_surface_layers_for_matching_is_parsed(self):
+        cfg = Config(
+            structure={
+                "hcp_list": [],
+                "fcc_list": ["Pt"],
+                "size": (3, 3, 4),
+                "vacuum": 10.0,
+            },
+            generation={
+                "layers_to_swap": 1,
+                "num_swaps": 1,
+                "swap_elements": ["Cu"],
+                "only_last_generation": True,
+            },
+            database={"path": "data/test.db"},
+            adsorbate={
+                "matcher": {"ltol": 0.05, "stol": 0.1, "angle_tol": 5.0},
+                "species": "N",
+                "coords": [(0.0, 0.0, 0.0)],
+                "sites": ["hollow"],
+                "tag": 0,
+                "surface_layers_for_matching": 2,
+            },
+        )
+
+        self.assertEqual(cfg.adsorbate.surface_layers_for_matching, 2)
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
