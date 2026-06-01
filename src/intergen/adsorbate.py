@@ -1,4 +1,5 @@
 from ase import Atoms
+from collections import Counter
 from pymatgen.core import Molecule, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
@@ -36,6 +37,56 @@ def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int
     return adsorbate_indices
 
 
+def get_host_symbol(structure: Structure, adsorbate_indices: list[int]) -> str:
+    slab_symbols = [
+        str(site.specie)
+        for i, site in enumerate(structure)
+        if i not in set(adsorbate_indices)
+    ]
+    return Counter(slab_symbols).most_common(1)[0][0]
+
+
+def get_masked_adsorbate_substructure(
+    structure: Structure,
+    comparison_indices: list[int],
+    adsorbate_indices: list[int],
+    host_symbol: str,
+) -> Structure:
+    substructure = get_substructure(structure, indices=comparison_indices)
+    adsorbate_index_set = set(adsorbate_indices)
+    for local_index, parent_index in enumerate(comparison_indices):
+        if parent_index not in adsorbate_index_set:
+            substructure[local_index] = host_symbol
+    return substructure
+
+
+def find_unique_adsorbate_structures(
+    structures: list[Structure],
+    surface_indices: list[int],
+    adsorbate: Molecule,
+    matcher: StructureMatcher,
+) -> list[int]:
+    if not structures:
+        return []
+    adsorbate_indices = get_adsorbate_indices(
+        structure=structures[0], adsorbate=adsorbate
+    )
+    host_symbol = get_host_symbol(
+        structure=structures[0], adsorbate_indices=adsorbate_indices
+    )
+    comparison_indices = surface_indices + adsorbate_indices[0:1]
+    masked_substructures = [
+        get_masked_adsorbate_substructure(
+            structure=structure,
+            comparison_indices=comparison_indices,
+            adsorbate_indices=adsorbate_indices,
+            host_symbol=host_symbol,
+        )
+        for structure in structures
+    ]
+    return find_unique_structures(structures=masked_substructures, matcher=matcher)
+
+
 def get_adsorbate_structures(
     cfg: Config,
     atoms_list: list[Atoms],
@@ -52,19 +103,11 @@ def get_adsorbate_structures(
         structures = add_adsorbates(cfg=cfg, structure=slab, adsorbate=adsorbate)
         max_slab_index = min(len(slab), slab_comparison_count)
         surface_indices = list(range(max_slab_index))
-        subsubstructures = []
-        for structure in structures:
-            adsorbate_indices = get_adsorbate_indices(
-                structure=structure, adsorbate=adsorbate
-            )
-            comparison_indices = (
-                surface_indices + adsorbate_indices[0:1]
-            )  # Why [0:1]? -> Only use binding atom index for structure matching
-            subsubstructures.append(
-                get_substructure(structure, indices=comparison_indices)
-            )
-        unique_indices = find_unique_structures(
-            structures=subsubstructures, matcher=matcher
+        unique_indices = find_unique_adsorbate_structures(
+            structures=structures,
+            surface_indices=surface_indices,
+            adsorbate=adsorbate,
+            matcher=matcher,
         )
         unique_structures = [structures[i] for i in unique_indices]
         unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
