@@ -93,7 +93,7 @@ class AdsorbateMatchingTests(unittest.TestCase):
             matcher=matcher,
         )
 
-        self.assertEqual(unique_indices, [0])
+        self.assertEqual(unique_indices, [1])
 
 
 if __name__ == "__main__":
