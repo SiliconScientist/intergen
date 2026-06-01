@@ -71,7 +71,7 @@ def id_unique_sites(
         structure, symprec=symprec, angle_tolerance=angle_tolerance
     )
     masked_sites = np.where(np.array(atoms.get_chemical_symbols()) == masked_element)[0]
-    equivalent_atoms = symmetry_object.get_symmetry_dataset()["equivalent_atoms"]
+    equivalent_atoms = symmetry_object.get_symmetry_dataset().equivalent_atoms
     unique_indices = np.unique([equivalent_atoms[i] for i in indices])
     unique_unmasked_indices = np.setdiff1d(unique_indices, masked_sites)
     return unique_unmasked_indices
