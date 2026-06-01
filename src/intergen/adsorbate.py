@@ -14,14 +14,14 @@ from intergen.surface import (
 
 def add_adsorbates(cfg: Config, structure, adsorbate: Molecule) -> list[Structure]:
     site_finder = AdsorbateSiteFinder(slab=structure)
-    site_coordinates = site_finder.find_adsorption_sites(symm_reduce=False)
+    site_coordinates = site_finder.find_adsorption_sites()
     structures = []
     for site in cfg.adsorbate.sites:
         for ads_coords in site_coordinates[site]:
-            structure = site_finder.add_adsorbate(
+            adsorbed_structure = site_finder.add_adsorbate(
                 molecule=adsorbate, ads_coord=ads_coords
             )
-            structures.append(structure)
+            structures.append(adsorbed_structure)
     return structures
 
 
@@ -54,16 +54,17 @@ def get_adsorbate_structures(
 ):
     """Generates all unique structures with the specified adsorbate."""
     slabs = prepare_for_pymatgen(atoms_list)
+    if not slabs:
+        return []
+    comparison_indices = get_adsorbate_comparison_indices(
+        atoms_per_layer=get_atoms_per_layer(cfg=cfg),
+        surface_layers=cfg.adsorbate.surface_layers_for_matching,
+        adsorbate_indices=get_adsorbate_indices(structure=slabs[0], adsorbate=adsorbate),
+        adsorbate_atoms_for_matching=1,
+    )
     atoms_list = []
     for slab in slabs:
         structures = add_adsorbates(cfg=cfg, structure=slab, adsorbate=adsorbate)
-        adsorbate_indices = get_adsorbate_indices(structure=slab, adsorbate=adsorbate)
-        comparison_indices = get_adsorbate_comparison_indices(
-            atoms_per_layer=get_atoms_per_layer(cfg=cfg),
-            surface_layers=cfg.adsorbate.surface_layers_for_matching,
-            adsorbate_indices=adsorbate_indices,
-            adsorbate_atoms_for_matching=1,
-        )
         subsubstructures = [
             get_substructure(structure, indices=comparison_indices)
             for structure in structures

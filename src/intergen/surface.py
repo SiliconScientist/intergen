@@ -1,4 +1,3 @@
-import copy
 import numpy as np
 import pandas as pd
 from ase.db import connect
@@ -78,8 +77,8 @@ def id_unique_sites(
 
 
 def swap_atoms(atoms: Atoms, index: int, element: str) -> Atoms:
-    new_atoms = copy.deepcopy(atoms)
-    new_symbols = atoms.get_chemical_symbols()
+    new_atoms = atoms.copy()
+    new_symbols = new_atoms.get_chemical_symbols()
     new_symbols[index] = element
     new_atoms.set_chemical_symbols(new_symbols)
     return new_atoms
@@ -211,22 +210,24 @@ def iterative_swaps(
 ) -> list[Atoms]:
     all_atoms = []
     current_generation = [atoms]
+    comparison_indices = range(atoms_per_layer)
     for i, element in enumerate(swap_plan):
         last_generation = i == len(swap_plan) - 1
-        next_generation = []
-        for atoms in current_generation:
-            swaps = enumerate_unique_swaps(
-                atoms=atoms,
-                host_element=host_element,
-                indices=indices,
-                element=element,
+        raw_next_generation = []
+        for current_atoms in current_generation:
+            raw_next_generation.extend(
+                enumerate_unique_swaps(
+                    atoms=current_atoms,
+                    host_element=host_element,
+                    indices=indices,
+                    element=element,
+                )
             )
-            unique_atoms = get_unique_atoms(
-                atoms_list=swaps,
-                comparison_indices=range(atoms_per_layer),
-                matcher=matcher,
-            )
-            next_generation.extend(unique_atoms)
+        next_generation = get_unique_atoms(
+            atoms_list=raw_next_generation,
+            comparison_indices=comparison_indices,
+            matcher=matcher,
+        )
         if last_generation and only_last_generation:
             all_atoms = next_generation
         elif not only_last_generation:
@@ -234,7 +235,7 @@ def iterative_swaps(
         current_generation = next_generation
     unique_atoms = get_unique_atoms(
         atoms_list=all_atoms,
-        comparison_indices=range(atoms_per_layer),
+        comparison_indices=comparison_indices,
         matcher=matcher,
     )
     return unique_atoms
