@@ -6,6 +6,7 @@ from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.core import Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
+from intergen.adsorbate import get_adsorbate_comparison_indices
 from intergen.surface import find_unique_structures, get_substructure
 
 
@@ -21,12 +22,34 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.adsorbate_index = [len(self.slab)]
 
     def _comparison_substructures(self, structures, surface_layers):
-        surface_indices = list(range(self.atoms_per_layer * surface_layers))
-        comparison_indices = surface_indices + self.adsorbate_index
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=self.atoms_per_layer,
+            surface_layers=surface_layers,
+            adsorbate_indices=self.adsorbate_index,
+        )
         return [
             get_substructure(structure, indices=comparison_indices)
             for structure in structures
         ]
+
+    def test_get_adsorbate_comparison_indices_uses_requested_surface_layers(self):
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=9,
+            surface_layers=2,
+            adsorbate_indices=[36, 37],
+        )
+
+        self.assertEqual(comparison_indices, list(range(18)) + [36])
+
+    def test_get_adsorbate_comparison_indices_can_include_multiple_adsorbate_atoms(self):
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=9,
+            surface_layers=2,
+            adsorbate_indices=[36, 37],
+            adsorbate_atoms_for_matching=2,
+        )
+
+        self.assertEqual(comparison_indices, list(range(18)) + [36, 37])
 
     def test_hollow_site_matching_distinguishes_fcc_and_hcp_with_second_layer(self):
         hollow_sites = self.site_finder.find_adsorption_sites(symm_reduce=False)[

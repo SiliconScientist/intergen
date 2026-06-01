@@ -35,6 +35,18 @@ def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int
     return adsorbate_indices
 
 
+def get_adsorbate_comparison_indices(
+    atoms_per_layer: int,
+    surface_layers: int,
+    adsorbate_indices: list[int],
+    adsorbate_atoms_for_matching: int = 1,
+) -> list[int]:
+    """Returns surface and adsorbate indices used for structure matching."""
+    surface_indices = list(range(atoms_per_layer * surface_layers))
+    matched_adsorbate_indices = adsorbate_indices[:adsorbate_atoms_for_matching]
+    return surface_indices + matched_adsorbate_indices
+
+
 def get_adsorbate_structures(
     cfg: Config,
     atoms_list: list[Atoms],
@@ -48,10 +60,12 @@ def get_adsorbate_structures(
     for slab in slabs:
         structures = add_adsorbates(cfg=cfg, structure=slab, adsorbate=adsorbate)
         adsorbate_indices = get_adsorbate_indices(structure=slab, adsorbate=adsorbate)
-        surface_indices = list(range(get_atoms_per_layer(cfg=cfg)))
-        comparison_indices = (
-            surface_indices + adsorbate_indices[0:1]
-        )  # Why [0:1]? -> Only use binding atom index for structure matching
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=get_atoms_per_layer(cfg=cfg),
+            surface_layers=1,
+            adsorbate_indices=adsorbate_indices,
+            adsorbate_atoms_for_matching=1,
+        )
         subsubstructures = [
             get_substructure(structure, indices=comparison_indices)
             for structure in structures
