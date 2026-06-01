@@ -6,47 +6,59 @@ from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.core import Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
-from intergen.adsorbate import get_adsorbate_comparison_indices
+from intergen.adsorbate import (
+    get_adsorbate_comparison_indices,
+    get_adsorbate_structures,
+)
 from intergen.config import Config
 from intergen.surface import find_unique_structures, get_substructure
 
 
+def make_config(surface_layers_for_matching):
+    return Config(
+        structure={
+            "hcp_list": [],
+            "fcc_list": ["Pt"],
+            "size": (3, 3, 4),
+            "vacuum": 10.0,
+        },
+        generation={
+            "layers_to_swap": 1,
+            "num_swaps": 1,
+            "swap_elements": ["Cu"],
+            "only_last_generation": True,
+        },
+        database={"path": "data/test.db"},
+        adsorbate={
+            "matcher": {"ltol": 0.05, "stol": 0.1, "angle_tol": 5.0},
+            "species": "N",
+            "coords": [(0.0, 0.0, 0.0)],
+            "sites": ["hollow"],
+            "tag": 0,
+            "surface_layers_for_matching": surface_layers_for_matching,
+        },
+    )
+
+
 class TestConfig(unittest.TestCase):
     def test_adsorbate_surface_layers_for_matching_is_parsed(self):
-        cfg = Config(
-            structure={
-                "hcp_list": [],
-                "fcc_list": ["Pt"],
-                "size": (3, 3, 4),
-                "vacuum": 10.0,
-            },
-            generation={
-                "layers_to_swap": 1,
-                "num_swaps": 1,
-                "swap_elements": ["Cu"],
-                "only_last_generation": True,
-            },
-            database={"path": "data/test.db"},
-            adsorbate={
-                "matcher": {"ltol": 0.05, "stol": 0.1, "angle_tol": 5.0},
-                "species": "N",
-                "coords": [(0.0, 0.0, 0.0)],
-                "sites": ["hollow"],
-                "tag": 0,
-                "surface_layers_for_matching": 2,
-            },
-        )
+        cfg = make_config(surface_layers_for_matching=2)
 
         self.assertEqual(cfg.adsorbate.surface_layers_for_matching, 2)
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
     def setUp(self):
+        self.cfg = make_config(surface_layers_for_matching=2)
         atoms = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
+        atoms.set_tags([0] * len(atoms))
+        self.atoms = atoms
         atoms.set_pbc(True)
         self.slab = AseAtomsAdaptor().get_structure(atoms)
         self.site_finder = AdsorbateSiteFinder(self.slab)
-        self.adsorbate = Molecule(["N"], [[0.0, 0.0, 0.0]])
+        self.adsorbate = Molecule(
+            ["N"], [[0.0, 0.0, 0.0]], site_properties={"tags": [0]}
+        )
         self.matcher = StructureMatcher(ltol=0.05, stol=0.1, angle_tol=5.0)
         self.atoms_per_layer = 9
         self.adsorbate_index = [len(self.slab)]
@@ -117,6 +129,26 @@ class TestHollowSiteRegistry(unittest.TestCase):
 
         self.assertEqual(one_layer_unique, [0])
         self.assertEqual(two_layer_unique, [0, 1])
+
+    def test_get_adsorbate_structures_distinguishes_hollow_registry_by_layer_count(self):
+        one_layer_cfg = make_config(surface_layers_for_matching=1)
+        two_layer_cfg = make_config(surface_layers_for_matching=2)
+
+        one_layer_structures = get_adsorbate_structures(
+            cfg=one_layer_cfg,
+            atoms_list=[self.atoms],
+            adsorbate=self.adsorbate,
+            matcher=self.matcher,
+        )
+        two_layer_structures = get_adsorbate_structures(
+            cfg=two_layer_cfg,
+            atoms_list=[self.atoms],
+            adsorbate=self.adsorbate,
+            matcher=self.matcher,
+        )
+
+        self.assertEqual(len(one_layer_structures), 1)
+        self.assertEqual(len(two_layer_structures), 2)
 
 
 if __name__ == "__main__":
