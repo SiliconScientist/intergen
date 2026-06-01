@@ -189,3 +189,4 @@ data/
 full_run.sh
 dev_run.sh
 slurm_output/
+submit.sh
