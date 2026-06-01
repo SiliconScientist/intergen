@@ -62,7 +62,7 @@ def get_adsorbate_structures(
         adsorbate_indices = get_adsorbate_indices(structure=slab, adsorbate=adsorbate)
         comparison_indices = get_adsorbate_comparison_indices(
             atoms_per_layer=get_atoms_per_layer(cfg=cfg),
-            surface_layers=1,
+            surface_layers=cfg.adsorbate.surface_layers_for_matching,
             adsorbate_indices=adsorbate_indices,
             adsorbate_atoms_for_matching=1,
         )
