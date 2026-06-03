@@ -119,8 +119,7 @@ class TestConfig(unittest.TestCase):
 class TestHollowSiteRegistry(unittest.TestCase):
     def setUp(self):
         self.cfg = make_config(surface_layers_for_matching=2)
-        atoms = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
-        atoms.set_tags([0] * len(atoms))
+        atoms = self._make_host_atoms("Pt")
         self.atoms = atoms
         atoms.set_pbc(True)
         self.slab = AseAtomsAdaptor().get_structure(atoms)
@@ -131,6 +130,12 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.matcher = StructureMatcher(ltol=0.05, stol=0.1, angle_tol=5.0)
         self.atoms_per_layer = 9
         self.adsorbate_index = [len(self.slab)]
+
+    def _make_host_atoms(self, host, size=(3, 3, 4)):
+        atoms = fcc111(host, size=size, vacuum=10.0)[::-1]
+        atoms.set_tags([0] * len(atoms))
+        atoms.set_pbc(True)
+        return atoms
 
     def _comparison_substructures(self, structures, surface_layers):
         comparison_indices = get_adsorbate_comparison_indices(
@@ -428,6 +433,46 @@ class TestHollowSiteRegistry(unittest.TestCase):
         first_dual_saa = swap_atoms(first_dual_saa, 4, "Au")
         second_dual_saa = swap_atoms(self.atoms, 2, "Cu")
         second_dual_saa = swap_atoms(second_dual_saa, 7, "Au")
+        self._assert_transferred_path_matches_direct_path(
+            reference_atoms=first_dual_saa,
+            target_atoms=second_dual_saa,
+            site_name="hollow",
+        )
+
+    def test_pd_heterodimer_fast_path_reuses_cached_site_discovery(self):
+        pd_atoms = self._make_host_atoms("Pd")
+        first_heterodimer = swap_atoms(pd_atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(pd_atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        stdout = io.StringIO()
+        supported_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+        )
+
+        with redirect_stdout(stdout):
+            structures = get_adsorbate_structures(
+                cfg=supported_cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        output = stdout.getvalue()
+
+        self.assertGreater(len(structures), 0)
+        self.assertIn("slabs=2", output)
+        self.assertIn("site_finder_calls=1", output)
+
+    def test_pd_transferred_dual_single_atom_alloy_sites_match_fresh_discovery(self):
+        pd_atoms = self._make_host_atoms("Pd")
+        first_dual_saa = swap_atoms(pd_atoms, 0, "Cu")
+        first_dual_saa = swap_atoms(first_dual_saa, 4, "Au")
+        second_dual_saa = swap_atoms(pd_atoms, 4, "Cu")
+        second_dual_saa = swap_atoms(second_dual_saa, 8, "Au")
+
         self._assert_transferred_path_matches_direct_path(
             reference_atoms=first_dual_saa,
             target_atoms=second_dual_saa,
