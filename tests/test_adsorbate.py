@@ -13,7 +13,12 @@ from intergen.adsorbate import (
     get_adsorbate_structures,
 )
 from intergen.config import Config
-from intergen.surface import find_unique_structures, get_substructure
+from intergen.surface import (
+    classify_top_layer_motif,
+    find_unique_structures,
+    get_substructure,
+    swap_atoms,
+)
 
 
 def make_config(surface_layers_for_matching):
@@ -169,6 +174,40 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertIn("Adsorbate generation stats:", output)
         self.assertIn("slabs=1", output)
         self.assertIn("site_finder_calls=1", output)
+
+
+class TestTopLayerMotifClassification(unittest.TestCase):
+    def setUp(self):
+        self.atoms = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
+        self.atoms_per_layer = 9
+
+    def test_classifies_pure_top_layer(self):
+        motif = classify_top_layer_motif(self.atoms, self.atoms_per_layer)
+
+        self.assertEqual(motif, "pure")
+
+    def test_classifies_single_swap_top_layer(self):
+        swapped = swap_atoms(self.atoms, 0, "Cu")
+
+        motif = classify_top_layer_motif(swapped, self.atoms_per_layer)
+
+        self.assertEqual(motif, "single_swap")
+
+    def test_classifies_heterodimer_top_layer(self):
+        swapped = swap_atoms(self.atoms, 0, "Cu")
+        swapped = swap_atoms(swapped, 1, "Au")
+
+        motif = classify_top_layer_motif(swapped, self.atoms_per_layer)
+
+        self.assertEqual(motif, "heterodimer")
+
+    def test_classifies_dual_single_atom_alloy_top_layer(self):
+        swapped = swap_atoms(self.atoms, 0, "Cu")
+        swapped = swap_atoms(swapped, 4, "Au")
+
+        motif = classify_top_layer_motif(swapped, self.atoms_per_layer)
+
+        self.assertEqual(motif, "dual_single_atom_alloy")
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from ase.db import connect
 from ase.atoms import Atoms
 from ase.build import fcc111, hcp0001
 from itertools import combinations
+from typing import Literal
 from pymatgen.core import Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -55,6 +56,48 @@ def build_pure_surfaces(cfg: Config) -> list[Atoms]:
         )[::-1]
         pure_atoms.append(slab)
     return pure_atoms
+
+
+TopLayerMotif = Literal[
+    "pure",
+    "single_swap",
+    "heterodimer",
+    "dual_single_atom_alloy",
+]
+
+
+def classify_top_layer_motif(atoms: Atoms, atoms_per_layer: int) -> TopLayerMotif:
+    top_layer_symbols = atoms.get_chemical_symbols()[:atoms_per_layer]
+    host_element = max(set(top_layer_symbols), key=top_layer_symbols.count)
+    swapped_indices = [
+        index
+        for index, symbol in enumerate(top_layer_symbols)
+        if symbol != host_element
+    ]
+    num_swaps = len(swapped_indices)
+    if num_swaps == 0:
+        return "pure"
+    if num_swaps == 1:
+        return "single_swap"
+    if num_swaps != 2:
+        raise ValueError(
+            "Top-layer motif classification only supports up to two swaps."
+        )
+
+    top_layer = atoms[:atoms_per_layer]
+    swapped_distance = top_layer.get_distance(
+        swapped_indices[0], swapped_indices[1], mic=True
+    )
+    pair_distances = []
+    for i in range(atoms_per_layer):
+        for j in range(i + 1, atoms_per_layer):
+            distance = top_layer.get_distance(i, j, mic=True)
+            if not np.isclose(distance, 0.0):
+                pair_distances.append(distance)
+    nearest_neighbor_distance = min(pair_distances)
+    if np.isclose(swapped_distance, nearest_neighbor_distance):
+        return "heterodimer"
+    return "dual_single_atom_alloy"
 
 
 def id_unique_sites(
