@@ -87,6 +87,79 @@ class TestHollowSiteRegistry(unittest.TestCase):
             for structure in structures
         ]
 
+    def _get_unique_adsorbate_structures(self, structures):
+        representative_indices = find_unique_structures(
+            self._comparison_substructures(
+                structures,
+                surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
+            ),
+            matcher=self.matcher,
+        )
+        return [structures[index] for index in representative_indices]
+
+    def _assert_sites_match(self, transferred_sites, direct_sites, site_name):
+        self.assertEqual(
+            len(transferred_sites[site_name]),
+            len(direct_sites[site_name]),
+        )
+        for transferred, direct in zip(
+            transferred_sites[site_name],
+            direct_sites[site_name],
+        ):
+            self.assertTrue(np.allclose(transferred, direct, atol=1e-6))
+
+    def _assert_transferred_path_matches_direct_path(
+        self,
+        reference_atoms,
+        target_atoms,
+        site_name,
+    ):
+        reference_structure = AseAtomsAdaptor().get_structure(reference_atoms)
+        target_structure = AseAtomsAdaptor().get_structure(target_atoms)
+        reference_sites = discover_adsorption_sites(reference_structure)
+        direct_sites = discover_adsorption_sites(target_structure)
+        template = build_adsorption_site_template(
+            structure=reference_structure,
+            site_coordinates=reference_sites,
+            atoms_per_layer=self.atoms_per_layer,
+        )
+        transferred_sites = transfer_adsorption_site_template(
+            structure=target_structure,
+            template=template,
+            atoms_per_layer=self.atoms_per_layer,
+        )
+
+        self._assert_sites_match(transferred_sites, direct_sites, site_name)
+
+        direct_structures = apply_adsorption_sites(
+            cfg=self.cfg,
+            structure=target_structure,
+            adsorbate=self.adsorbate,
+            site_coordinates=direct_sites,
+        )
+        transferred_structures = apply_adsorption_sites(
+            cfg=self.cfg,
+            structure=target_structure,
+            adsorbate=self.adsorbate,
+            site_coordinates=transferred_sites,
+        )
+        unique_direct_structures = self._get_unique_adsorbate_structures(
+            direct_structures
+        )
+        unique_transferred_structures = self._get_unique_adsorbate_structures(
+            transferred_structures
+        )
+
+        self.assertEqual(
+            len(unique_transferred_structures),
+            len(unique_direct_structures),
+        )
+        for transferred_structure, direct_structure in zip(
+            unique_transferred_structures,
+            unique_direct_structures,
+        ):
+            self.assertTrue(self.matcher.fit(transferred_structure, direct_structure))
+
     def test_get_adsorbate_comparison_indices_uses_requested_surface_layers(self):
         comparison_indices = get_adsorbate_comparison_indices(
             atoms_per_layer=9,
@@ -227,27 +300,22 @@ class TestHollowSiteRegistry(unittest.TestCase):
         first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
         second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
         second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
-        first_structure, second_structure = AseAtomsAdaptor().get_structure(
-            first_heterodimer
-        ), AseAtomsAdaptor().get_structure(second_heterodimer)
-
-        reference_sites = discover_adsorption_sites(first_structure)
-        template = build_adsorption_site_template(
-            structure=first_structure,
-            site_coordinates=reference_sites,
-            atoms_per_layer=self.atoms_per_layer,
+        self._assert_transferred_path_matches_direct_path(
+            reference_atoms=first_heterodimer,
+            target_atoms=second_heterodimer,
+            site_name="hollow",
         )
-        transferred_sites = transfer_adsorption_site_template(
-            structure=second_structure,
-            template=template,
-            atoms_per_layer=self.atoms_per_layer,
-        )
-        direct_sites = discover_adsorption_sites(second_structure)
 
-        for transferred, direct in zip(
-            transferred_sites["hollow"], direct_sites["hollow"]
-        ):
-            self.assertTrue(np.allclose(transferred, direct, atol=1e-6))
+    def test_transferred_dual_single_atom_alloy_sites_match_fresh_discovery(self):
+        first_dual_saa = swap_atoms(self.atoms, 0, "Cu")
+        first_dual_saa = swap_atoms(first_dual_saa, 4, "Au")
+        second_dual_saa = swap_atoms(self.atoms, 2, "Cu")
+        second_dual_saa = swap_atoms(second_dual_saa, 7, "Au")
+        self._assert_transferred_path_matches_direct_path(
+            reference_atoms=first_dual_saa,
+            target_atoms=second_dual_saa,
+            site_name="hollow",
+        )
 
 
 class TestTopLayerMotifClassification(unittest.TestCase):
