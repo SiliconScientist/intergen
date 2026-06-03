@@ -42,6 +42,15 @@ class AdsorptionSiteTemplate:
     coordinates_by_site: dict[str, list[tuple[float, float, float]]]
 
 
+def supports_two_swap_motif_template_reuse(cfg: Config, motif: str) -> bool:
+    return (
+        cfg.adsorbate.reuse_site_templates_for_two_swap_motifs
+        and cfg.generation.num_swaps == 2
+        and cfg.structure.size[:2] == (3, 3)
+        and motif in MOTIF_SITE_CACHEABLE
+    )
+
+
 def add_adsorbates(
     cfg: Config,
     structure,
@@ -137,15 +146,15 @@ def transfer_adsorption_site_template(
 
 
 def get_cached_adsorption_sites(
+    cfg: Config,
     atoms: Atoms,
     structure: Structure,
     atoms_per_layer: int,
     motif_site_cache: dict[str, AdsorptionSiteTemplate],
-    reuse_site_templates_for_two_swap_motifs: bool,
     stats: AdsorbateGenerationStats | None = None,
 ) -> dict[str, list]:
     motif = classify_top_layer_motif(atoms=atoms, atoms_per_layer=atoms_per_layer)
-    can_reuse = reuse_site_templates_for_two_swap_motifs and motif in MOTIF_SITE_CACHEABLE
+    can_reuse = supports_two_swap_motif_template_reuse(cfg=cfg, motif=motif)
     if can_reuse and motif in motif_site_cache:
         return transfer_adsorption_site_template(
             structure=structure,
@@ -207,13 +216,11 @@ def get_adsorbate_structures(
     atoms_list = []
     for atoms, slab in zip(source_atoms_list, slabs):
         site_coordinates = get_cached_adsorption_sites(
+            cfg=cfg,
             atoms=atoms,
             structure=slab,
             atoms_per_layer=atoms_per_layer,
             motif_site_cache=motif_site_cache,
-            reuse_site_templates_for_two_swap_motifs=(
-                cfg.adsorbate.reuse_site_templates_for_two_swap_motifs
-            ),
             stats=stats,
         )
         structures = apply_adsorption_sites(

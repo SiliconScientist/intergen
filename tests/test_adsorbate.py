@@ -16,6 +16,7 @@ from intergen.adsorbate import (
     discover_adsorption_sites,
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
+    supports_two_swap_motif_template_reuse,
     transfer_adsorption_site_template,
 )
 from intergen.config import Config
@@ -30,17 +31,19 @@ from intergen.surface import (
 def make_config(
     surface_layers_for_matching,
     reuse_site_templates_for_two_swap_motifs=True,
+    num_swaps=1,
+    size=(3, 3, 4),
 ):
     return Config(
         structure={
             "hcp_list": [],
             "fcc_list": ["Pt"],
-            "size": (3, 3, 4),
+            "size": size,
             "vacuum": 10.0,
         },
         generation={
             "layers_to_swap": 1,
-            "num_swaps": 1,
+            "num_swaps": num_swaps,
             "swap_elements": ["Cu"],
             "only_last_generation": True,
         },
@@ -72,6 +75,45 @@ class TestConfig(unittest.TestCase):
         )
 
         self.assertFalse(cfg.adsorbate.reuse_site_templates_for_two_swap_motifs)
+
+    def test_supports_two_swap_motif_template_reuse_requires_supported_case(self):
+        supported_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+        )
+        wrong_swap_count_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=1,
+        )
+        wrong_size_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+            size=(4, 3, 4),
+        )
+
+        self.assertTrue(
+            supports_two_swap_motif_template_reuse(
+                cfg=supported_cfg, motif="heterodimer"
+            )
+        )
+        self.assertFalse(
+            supports_two_swap_motif_template_reuse(
+                cfg=wrong_swap_count_cfg, motif="heterodimer"
+            )
+        )
+        self.assertFalse(
+            supports_two_swap_motif_template_reuse(
+                cfg=wrong_size_cfg, motif="heterodimer"
+            )
+        )
+        self.assertFalse(
+            supports_two_swap_motif_template_reuse(
+                cfg=supported_cfg, motif="single_swap"
+            )
+        )
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
@@ -110,6 +152,25 @@ class TestHollowSiteRegistry(unittest.TestCase):
             matcher=self.matcher,
         )
         return [structures[index] for index in representative_indices]
+
+    def _assert_structure_lists_match(
+        self, left_structures, right_structures, matcher=None
+    ):
+        if matcher is None:
+            matcher = self.matcher
+        converter = AseAtomsAdaptor()
+        left_structures = [converter.get_structure(atoms) for atoms in left_structures]
+        right_structures = [converter.get_structure(atoms) for atoms in right_structures]
+        self.assertEqual(len(left_structures), len(right_structures))
+        unmatched_indices = list(range(len(right_structures)))
+        for left_structure in left_structures:
+            for index in unmatched_indices:
+                if matcher.fit(left_structure, right_structures[index]):
+                    unmatched_indices.remove(index)
+                    break
+            else:
+                self.fail("Could not match adsorbate structure between paths.")
+        self.assertEqual(unmatched_indices, [])
 
     def _assert_sites_match(self, transferred_sites, direct_sites, site_name):
         self.assertEqual(
@@ -294,10 +355,15 @@ class TestHollowSiteRegistry(unittest.TestCase):
         second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
         second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
         stdout = io.StringIO()
+        supported_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+        )
 
         with redirect_stdout(stdout):
             structures = get_adsorbate_structures(
-                cfg=self.cfg,
+                cfg=supported_cfg,
                 atoms_list=[first_heterodimer, second_heterodimer],
                 adsorbate=self.adsorbate,
                 matcher=self.matcher,
@@ -319,10 +385,12 @@ class TestHollowSiteRegistry(unittest.TestCase):
         enabled_cfg = make_config(
             surface_layers_for_matching=2,
             reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
         )
         disabled_cfg = make_config(
             surface_layers_for_matching=2,
             reuse_site_templates_for_two_swap_motifs=False,
+            num_swaps=2,
         )
 
         with redirect_stdout(enabled_stdout):
@@ -364,6 +432,94 @@ class TestHollowSiteRegistry(unittest.TestCase):
             reference_atoms=first_dual_saa,
             target_atoms=second_dual_saa,
             site_name="hollow",
+        )
+
+    def test_unsupported_num_swaps_uses_exact_path_and_preserves_results(self):
+        first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        fallback_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=1,
+        )
+        exact_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=False,
+            num_swaps=1,
+        )
+        fallback_stdout = io.StringIO()
+        exact_stdout = io.StringIO()
+
+        with redirect_stdout(fallback_stdout):
+            fallback_structures = get_adsorbate_structures(
+                cfg=fallback_cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        with redirect_stdout(exact_stdout):
+            exact_structures = get_adsorbate_structures(
+                cfg=exact_cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        self.assertIn("site_finder_calls=2", fallback_stdout.getvalue())
+        self.assertIn("site_finder_calls=2", exact_stdout.getvalue())
+        self._assert_structure_lists_match(
+            fallback_structures, exact_structures, matcher=self.matcher
+        )
+
+    def test_unsupported_surface_size_uses_exact_path_and_preserves_results(self):
+        large_atoms = fcc111("Pt", size=(2, 3, 4), vacuum=10.0)[::-1]
+        large_atoms.set_tags([0] * len(large_atoms))
+        large_adsorbate = Molecule(
+            ["N"], [[0.0, 0.0, 0.0]], site_properties={"tags": [0]}
+        )
+        large_matcher = StructureMatcher(ltol=0.05, stol=0.1, angle_tol=5.0)
+        first_heterodimer = swap_atoms(large_atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(large_atoms, 2, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 3, "Au")
+        fallback_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+            size=(2, 3, 4),
+        )
+        exact_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=False,
+            num_swaps=2,
+            size=(2, 3, 4),
+        )
+        fallback_stdout = io.StringIO()
+        exact_stdout = io.StringIO()
+
+        with redirect_stdout(fallback_stdout):
+            fallback_structures = get_adsorbate_structures(
+                cfg=fallback_cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=large_adsorbate,
+                matcher=large_matcher,
+            )
+
+        with redirect_stdout(exact_stdout):
+            exact_structures = get_adsorbate_structures(
+                cfg=exact_cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=large_adsorbate,
+                matcher=large_matcher,
+            )
+
+        self.assertIn("site_finder_calls=2", fallback_stdout.getvalue())
+        self.assertIn("site_finder_calls=2", exact_stdout.getvalue())
+        self._assert_structure_lists_match(
+            fallback_structures, exact_structures, matcher=large_matcher
         )
 
 
