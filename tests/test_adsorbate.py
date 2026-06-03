@@ -2,6 +2,7 @@ import io
 import unittest
 from contextlib import redirect_stdout
 
+import numpy as np
 from ase.build import fcc111
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
@@ -9,11 +10,13 @@ from pymatgen.core import Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from intergen.adsorbate import (
+    build_adsorption_site_template,
     add_adsorbates,
     apply_adsorption_sites,
     discover_adsorption_sites,
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
+    transfer_adsorption_site_template,
 )
 from intergen.config import Config
 from intergen.surface import (
@@ -218,6 +221,33 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertGreater(len(structures), 0)
         self.assertIn("slabs=2", output)
         self.assertIn("site_finder_calls=1", output)
+
+    def test_transferred_heterodimer_sites_match_fresh_discovery(self):
+        first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        first_structure, second_structure = AseAtomsAdaptor().get_structure(
+            first_heterodimer
+        ), AseAtomsAdaptor().get_structure(second_heterodimer)
+
+        reference_sites = discover_adsorption_sites(first_structure)
+        template = build_adsorption_site_template(
+            structure=first_structure,
+            site_coordinates=reference_sites,
+            atoms_per_layer=self.atoms_per_layer,
+        )
+        transferred_sites = transfer_adsorption_site_template(
+            structure=second_structure,
+            template=template,
+            atoms_per_layer=self.atoms_per_layer,
+        )
+        direct_sites = discover_adsorption_sites(second_structure)
+
+        for transferred, direct in zip(
+            transferred_sites["hollow"], direct_sites["hollow"]
+        ):
+            self.assertTrue(np.allclose(transferred, direct, atol=1e-6))
 
 
 class TestTopLayerMotifClassification(unittest.TestCase):
