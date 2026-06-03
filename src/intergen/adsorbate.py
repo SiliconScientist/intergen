@@ -8,6 +8,7 @@ from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from intergen.config import Config
 from intergen.surface import (
+    classify_top_layer_motif,
     prepare_for_pymatgen,
     get_atoms_per_layer,
     find_unique_structures,
@@ -30,6 +31,9 @@ class AdsorbateGenerationStats:
             f"site_finding_seconds={self.site_finding_seconds:.3f}, "
             f"matching_seconds={self.matching_seconds:.3f}"
         )
+
+
+MOTIF_SITE_CACHEABLE = {"heterodimer", "dual_single_atom_alloy"}
 
 
 def add_adsorbates(
@@ -77,6 +81,23 @@ def apply_adsorption_sites(
     return structures
 
 
+def get_cached_adsorption_sites(
+    atoms: Atoms,
+    structure: Structure,
+    atoms_per_layer: int,
+    motif_site_cache: dict[str, dict[str, list]],
+    stats: AdsorbateGenerationStats | None = None,
+) -> dict[str, list]:
+    motif = classify_top_layer_motif(atoms=atoms, atoms_per_layer=atoms_per_layer)
+    if motif in MOTIF_SITE_CACHEABLE and motif in motif_site_cache:
+        return motif_site_cache[motif]
+
+    site_coordinates = discover_adsorption_sites(structure=structure, stats=stats)
+    if motif in MOTIF_SITE_CACHEABLE:
+        motif_site_cache[motif] = site_coordinates
+    return site_coordinates
+
+
 def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int]:
     """Returns the indices of the adsorbate in the structure."""
     structure_len = len(structure)
@@ -105,23 +126,33 @@ def get_adsorbate_structures(
     converter: AseAtomsAdaptor = AseAtomsAdaptor(),
 ):
     """Generates all unique structures with the specified adsorbate."""
-    slabs = prepare_for_pymatgen(atoms_list)
+    source_atoms_list = atoms_list
+    slabs = prepare_for_pymatgen(source_atoms_list)
     if not slabs:
         return []
     stats = AdsorbateGenerationStats(slabs_processed=len(slabs))
+    atoms_per_layer = get_atoms_per_layer(cfg=cfg)
     comparison_indices = get_adsorbate_comparison_indices(
-        atoms_per_layer=get_atoms_per_layer(cfg=cfg),
+        atoms_per_layer=atoms_per_layer,
         surface_layers=cfg.adsorbate.surface_layers_for_matching,
         adsorbate_indices=get_adsorbate_indices(structure=slabs[0], adsorbate=adsorbate),
         adsorbate_atoms_for_matching=1,
     )
+    motif_site_cache = {}
     atoms_list = []
-    for slab in slabs:
-        structures = add_adsorbates(
+    for atoms, slab in zip(source_atoms_list, slabs):
+        site_coordinates = get_cached_adsorption_sites(
+            atoms=atoms,
+            structure=slab,
+            atoms_per_layer=atoms_per_layer,
+            motif_site_cache=motif_site_cache,
+            stats=stats,
+        )
+        structures = apply_adsorption_sites(
             cfg=cfg,
             structure=slab,
             adsorbate=adsorbate,
-            stats=stats,
+            site_coordinates=site_coordinates,
         )
         matching_start = perf_counter()
         subsubstructures = [

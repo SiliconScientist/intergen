@@ -198,6 +198,27 @@ class TestHollowSiteRegistry(unittest.TestCase):
         for split_structure, direct_structure in zip(split_structures, direct_structures):
             self.assertTrue(self.matcher.fit(split_structure, direct_structure))
 
+    def test_equivalent_heterodimer_slabs_reuse_cached_site_discovery(self):
+        first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            structures = get_adsorbate_structures(
+                cfg=self.cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        output = stdout.getvalue()
+
+        self.assertGreater(len(structures), 0)
+        self.assertIn("slabs=2", output)
+        self.assertIn("site_finder_calls=1", output)
+
 
 class TestTopLayerMotifClassification(unittest.TestCase):
     def setUp(self):
