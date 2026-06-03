@@ -27,7 +27,10 @@ from intergen.surface import (
 )
 
 
-def make_config(surface_layers_for_matching):
+def make_config(
+    surface_layers_for_matching,
+    reuse_site_templates_for_two_swap_motifs=True,
+):
     return Config(
         structure={
             "hcp_list": [],
@@ -49,6 +52,9 @@ def make_config(surface_layers_for_matching):
             "sites": ["hollow"],
             "tag": 0,
             "surface_layers_for_matching": surface_layers_for_matching,
+            "reuse_site_templates_for_two_swap_motifs": (
+                reuse_site_templates_for_two_swap_motifs
+            ),
         },
     )
 
@@ -58,6 +64,14 @@ class TestConfig(unittest.TestCase):
         cfg = make_config(surface_layers_for_matching=2)
 
         self.assertEqual(cfg.adsorbate.surface_layers_for_matching, 2)
+
+    def test_adsorbate_reuse_site_templates_flag_is_parsed(self):
+        cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=False,
+        )
+
+        self.assertFalse(cfg.adsorbate.reuse_site_templates_for_two_swap_motifs)
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
@@ -294,6 +308,41 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertGreater(len(structures), 0)
         self.assertIn("slabs=2", output)
         self.assertIn("site_finder_calls=1", output)
+
+    def test_site_template_reuse_can_be_enabled_or_disabled(self):
+        first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        enabled_stdout = io.StringIO()
+        disabled_stdout = io.StringIO()
+        enabled_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+        )
+        disabled_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=False,
+        )
+
+        with redirect_stdout(enabled_stdout):
+            get_adsorbate_structures(
+                cfg=enabled_cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        with redirect_stdout(disabled_stdout):
+            get_adsorbate_structures(
+                cfg=disabled_cfg,
+                atoms_list=[first_heterodimer, second_heterodimer],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        self.assertIn("site_finder_calls=1", enabled_stdout.getvalue())
+        self.assertIn("site_finder_calls=2", disabled_stdout.getvalue())
 
     def test_transferred_heterodimer_sites_match_fresh_discovery(self):
         first_heterodimer = swap_atoms(self.atoms, 0, "Cu")

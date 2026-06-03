@@ -36,6 +36,7 @@ class AdsorbateConfig(BaseModel):
     sites: list[str]
     tag: int
     surface_layers_for_matching: int
+    reuse_site_templates_for_two_swap_motifs: bool = True
 
 
 class Config(BaseModel):
