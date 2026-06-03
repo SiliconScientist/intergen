@@ -9,6 +9,9 @@ from pymatgen.core import Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from intergen.adsorbate import (
+    add_adsorbates,
+    apply_adsorption_sites,
+    discover_adsorption_sites,
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
 )
@@ -174,6 +177,26 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertIn("Adsorbate generation stats:", output)
         self.assertIn("slabs=1", output)
         self.assertIn("site_finder_calls=1", output)
+
+    def test_discover_then_apply_matches_add_adsorbates_for_single_slab(self):
+        discovered_sites = discover_adsorption_sites(self.slab)
+
+        split_structures = apply_adsorption_sites(
+            cfg=self.cfg,
+            structure=self.slab,
+            adsorbate=self.adsorbate,
+            site_coordinates=discovered_sites,
+        )
+        direct_structures = add_adsorbates(
+            cfg=self.cfg,
+            structure=self.slab,
+            adsorbate=self.adsorbate,
+        )
+
+        self.assertEqual(len(split_structures), len(direct_structures))
+
+        for split_structure, direct_structure in zip(split_structures, direct_structures):
+            self.assertTrue(self.matcher.fit(split_structure, direct_structure))
 
 
 class TestTopLayerMotifClassification(unittest.TestCase):

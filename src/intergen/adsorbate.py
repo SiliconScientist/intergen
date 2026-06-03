@@ -38,12 +38,35 @@ def add_adsorbates(
     adsorbate: Molecule,
     stats: AdsorbateGenerationStats | None = None,
 ) -> list[Structure]:
+    site_coordinates = discover_adsorption_sites(structure=structure, stats=stats)
+    return apply_adsorption_sites(
+        cfg=cfg,
+        structure=structure,
+        adsorbate=adsorbate,
+        site_coordinates=site_coordinates,
+    )
+
+
+def discover_adsorption_sites(
+    structure,
+    stats: AdsorbateGenerationStats | None = None,
+) -> dict[str, list]:
     site_finder = AdsorbateSiteFinder(slab=structure)
     start = perf_counter()
     site_coordinates = site_finder.find_adsorption_sites()
     if stats is not None:
         stats.site_finder_calls += 1
         stats.site_finding_seconds += perf_counter() - start
+    return site_coordinates
+
+
+def apply_adsorption_sites(
+    cfg: Config,
+    structure,
+    adsorbate: Molecule,
+    site_coordinates: dict[str, list],
+) -> list[Structure]:
+    site_finder = AdsorbateSiteFinder(slab=structure)
     structures = []
     for site in cfg.adsorbate.sites:
         for ads_coords in site_coordinates[site]:
