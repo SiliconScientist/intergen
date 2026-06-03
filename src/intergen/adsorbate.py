@@ -42,6 +42,11 @@ class AdsorptionSiteTemplate:
     coordinates_by_site: dict[str, list[tuple[float, float, float]]]
 
 
+def get_top_layer_host_element(atoms: Atoms, atoms_per_layer: int) -> str:
+    top_layer_symbols = atoms.get_chemical_symbols()[:atoms_per_layer]
+    return max(set(top_layer_symbols), key=top_layer_symbols.count)
+
+
 def supports_two_swap_motif_template_reuse(cfg: Config, motif: str) -> bool:
     return (
         cfg.adsorbate.reuse_site_templates_for_two_swap_motifs
@@ -150,21 +155,25 @@ def get_cached_adsorption_sites(
     atoms: Atoms,
     structure: Structure,
     atoms_per_layer: int,
-    motif_site_cache: dict[str, AdsorptionSiteTemplate],
+    motif_site_cache: dict[tuple[str, str], AdsorptionSiteTemplate],
     stats: AdsorbateGenerationStats | None = None,
 ) -> dict[str, list]:
+    host_element = get_top_layer_host_element(
+        atoms=atoms, atoms_per_layer=atoms_per_layer
+    )
     motif = classify_top_layer_motif(atoms=atoms, atoms_per_layer=atoms_per_layer)
+    cache_key = (host_element, motif)
     can_reuse = supports_two_swap_motif_template_reuse(cfg=cfg, motif=motif)
-    if can_reuse and motif in motif_site_cache:
+    if can_reuse and cache_key in motif_site_cache:
         return transfer_adsorption_site_template(
             structure=structure,
-            template=motif_site_cache[motif],
+            template=motif_site_cache[cache_key],
             atoms_per_layer=atoms_per_layer,
         )
 
     site_coordinates = discover_adsorption_sites(structure=structure, stats=stats)
     if can_reuse:
-        motif_site_cache[motif] = build_adsorption_site_template(
+        motif_site_cache[cache_key] = build_adsorption_site_template(
             structure=structure,
             site_coordinates=site_coordinates,
             atoms_per_layer=atoms_per_layer,

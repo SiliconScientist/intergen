@@ -16,6 +16,7 @@ from intergen.adsorbate import (
     discover_adsorption_sites,
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
+    get_top_layer_host_element,
     supports_two_swap_motif_template_reuse,
     transfer_adsorption_site_template,
 )
@@ -114,6 +115,13 @@ class TestConfig(unittest.TestCase):
                 cfg=supported_cfg, motif="single_swap"
             )
         )
+
+    def test_top_layer_host_element_uses_majority_species(self):
+        atoms = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
+        atoms = swap_atoms(atoms, 0, "Cu")
+        atoms = swap_atoms(atoms, 1, "Au")
+
+        self.assertEqual(get_top_layer_host_element(atoms, atoms_per_layer=9), "Pt")
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
@@ -465,6 +473,42 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertGreater(len(structures), 0)
         self.assertIn("slabs=2", output)
         self.assertIn("site_finder_calls=1", output)
+
+    def test_mixed_pt_pd_hosts_do_not_share_cached_templates(self):
+        pt_first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        pt_first_heterodimer = swap_atoms(pt_first_heterodimer, 1, "Au")
+        pt_second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        pt_second_heterodimer = swap_atoms(pt_second_heterodimer, 4, "Au")
+        pd_atoms = self._make_host_atoms("Pd")
+        pd_first_heterodimer = swap_atoms(pd_atoms, 0, "Cu")
+        pd_first_heterodimer = swap_atoms(pd_first_heterodimer, 1, "Au")
+        pd_second_heterodimer = swap_atoms(pd_atoms, 3, "Cu")
+        pd_second_heterodimer = swap_atoms(pd_second_heterodimer, 4, "Au")
+        stdout = io.StringIO()
+        supported_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+        )
+
+        with redirect_stdout(stdout):
+            structures = get_adsorbate_structures(
+                cfg=supported_cfg,
+                atoms_list=[
+                    pt_first_heterodimer,
+                    pt_second_heterodimer,
+                    pd_first_heterodimer,
+                    pd_second_heterodimer,
+                ],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        output = stdout.getvalue()
+
+        self.assertGreater(len(structures), 0)
+        self.assertIn("slabs=4", output)
+        self.assertIn("site_finder_calls=2", output)
 
     def test_pd_transferred_dual_single_atom_alloy_sites_match_fresh_discovery(self):
         pd_atoms = self._make_host_atoms("Pd")
