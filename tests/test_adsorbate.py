@@ -1,4 +1,6 @@
+import io
 import unittest
+from contextlib import redirect_stdout
 
 from ase.build import fcc111
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
@@ -149,6 +151,24 @@ class TestHollowSiteRegistry(unittest.TestCase):
 
         self.assertEqual(len(one_layer_structures), 1)
         self.assertEqual(len(two_layer_structures), 2)
+
+    def test_get_adsorbate_structures_prints_generation_stats(self):
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            structures = get_adsorbate_structures(
+                cfg=self.cfg,
+                atoms_list=[self.atoms],
+                adsorbate=self.adsorbate,
+                matcher=self.matcher,
+            )
+
+        output = stdout.getvalue()
+
+        self.assertEqual(len(structures), 2)
+        self.assertIn("Adsorbate generation stats:", output)
+        self.assertIn("slabs=1", output)
+        self.assertIn("site_finder_calls=1", output)
 
 
 if __name__ == "__main__":

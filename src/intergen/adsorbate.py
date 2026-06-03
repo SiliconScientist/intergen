@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from time import perf_counter
+
 from ase import Atoms
 from pymatgen.core import Molecule, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
@@ -12,9 +15,35 @@ from intergen.surface import (
 )
 
 
-def add_adsorbates(cfg: Config, structure, adsorbate: Molecule) -> list[Structure]:
+@dataclass
+class AdsorbateGenerationStats:
+    slabs_processed: int = 0
+    site_finder_calls: int = 0
+    site_finding_seconds: float = 0.0
+    matching_seconds: float = 0.0
+
+    def summary(self) -> str:
+        return (
+            "Adsorbate generation stats: "
+            f"slabs={self.slabs_processed}, "
+            f"site_finder_calls={self.site_finder_calls}, "
+            f"site_finding_seconds={self.site_finding_seconds:.3f}, "
+            f"matching_seconds={self.matching_seconds:.3f}"
+        )
+
+
+def add_adsorbates(
+    cfg: Config,
+    structure,
+    adsorbate: Molecule,
+    stats: AdsorbateGenerationStats | None = None,
+) -> list[Structure]:
     site_finder = AdsorbateSiteFinder(slab=structure)
+    start = perf_counter()
     site_coordinates = site_finder.find_adsorption_sites()
+    if stats is not None:
+        stats.site_finder_calls += 1
+        stats.site_finding_seconds += perf_counter() - start
     structures = []
     for site in cfg.adsorbate.sites:
         for ads_coords in site_coordinates[site]:
@@ -56,6 +85,7 @@ def get_adsorbate_structures(
     slabs = prepare_for_pymatgen(atoms_list)
     if not slabs:
         return []
+    stats = AdsorbateGenerationStats(slabs_processed=len(slabs))
     comparison_indices = get_adsorbate_comparison_indices(
         atoms_per_layer=get_atoms_per_layer(cfg=cfg),
         surface_layers=cfg.adsorbate.surface_layers_for_matching,
@@ -64,7 +94,13 @@ def get_adsorbate_structures(
     )
     atoms_list = []
     for slab in slabs:
-        structures = add_adsorbates(cfg=cfg, structure=slab, adsorbate=adsorbate)
+        structures = add_adsorbates(
+            cfg=cfg,
+            structure=slab,
+            adsorbate=adsorbate,
+            stats=stats,
+        )
+        matching_start = perf_counter()
         subsubstructures = [
             get_substructure(structure, indices=comparison_indices)
             for structure in structures
@@ -72,7 +108,9 @@ def get_adsorbate_structures(
         unique_indices = find_unique_structures(
             structures=subsubstructures, matcher=matcher
         )
+        stats.matching_seconds += perf_counter() - matching_start
         unique_structures = [structures[i] for i in unique_indices]
         unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
         atoms_list.extend(unique_atoms)
+    print(stats.summary())
     return atoms_list
