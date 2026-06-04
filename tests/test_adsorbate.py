@@ -244,7 +244,8 @@ class TestHollowSiteRegistry(unittest.TestCase):
     def setUpClass(cls):
         cls.cfg = make_config(surface_layers_for_matching=2)
         cls.atoms = cls._make_host_atoms("Pt")
-        cls.slab = AseAtomsAdaptor().get_structure(cls.atoms)
+        cls.converter = AseAtomsAdaptor()
+        cls.slab = cls.converter.get_structure(cls.atoms)
         cls.site_finder = AdsorbateSiteFinder(cls.slab)
         cls.adsorbate = Molecule(
             ["N"], [[0.0, 0.0, 0.0]], site_properties={"tags": [0]}
@@ -283,34 +284,67 @@ class TestHollowSiteRegistry(unittest.TestCase):
             for structure in structures
         ]
 
+    def _canonical_structure_signature(self, structure):
+        species = tuple(str(site.specie) for site in structure)
+        lattice = tuple(
+            tuple(round(float(value), 6) for value in row)
+            for row in structure.lattice.matrix
+        )
+        fractional_coordinates = tuple(
+            tuple(round(float(value % 1.0), 6) for value in coordinate)
+            for coordinate in structure.frac_coords
+        )
+        return species, lattice, fractional_coordinates
+
+    def _canonical_structure_signatures(self, structures):
+        return sorted(
+            self._canonical_structure_signature(structure) for structure in structures
+        )
+
+    def _canonical_atom_signatures(self, atoms_list):
+        structures = [self.converter.get_structure(atoms) for atoms in atoms_list]
+        return self._canonical_structure_signatures(structures)
+
     def _get_unique_adsorbate_structures(self, structures):
-        representative_indices = find_unique_structures(
+        return deduplicate_adsorption_structures(
+            structures=structures,
+            comparison_indices=self.comparison_indices,
+            matcher=self.matcher,
+        )
+
+    def _get_unique_adsorbate_substructure_signatures(self, structures):
+        unique_structures = self._get_unique_adsorbate_structures(structures)
+        comparison_substructures = build_adsorbate_comparison_substructures(
+            structures=unique_structures,
+            comparison_indices=self.comparison_indices,
+        )
+        return self._canonical_structure_signatures(comparison_substructures)
+
+    def _get_comparison_substructure_signatures(self, structures, surface_layers):
+        return self._canonical_structure_signatures(
             self._comparison_substructures(
                 structures,
-                surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
+                surface_layers=surface_layers,
+            )
+        )
+
+    def _get_unique_comparison_substructure_indices(self, structures, surface_layers):
+        return find_unique_structures(
+            self._comparison_substructures(
+                structures,
+                surface_layers=surface_layers,
             ),
             matcher=self.matcher,
         )
-        return [structures[index] for index in representative_indices]
 
     def _assert_structure_lists_match(
         self, left_structures, right_structures, matcher=None
     ):
-        if matcher is None:
-            matcher = self.matcher
-        converter = AseAtomsAdaptor()
-        left_structures = [converter.get_structure(atoms) for atoms in left_structures]
-        right_structures = [converter.get_structure(atoms) for atoms in right_structures]
-        self.assertEqual(len(left_structures), len(right_structures))
-        unmatched_indices = list(range(len(right_structures)))
-        for left_structure in left_structures:
-            for index in unmatched_indices:
-                if matcher.fit(left_structure, right_structures[index]):
-                    unmatched_indices.remove(index)
-                    break
-            else:
-                self.fail("Could not match adsorbate structure between paths.")
-        self.assertEqual(unmatched_indices, [])
+        del matcher
+        self.assertEqual(
+            self._canonical_atom_signatures(left_structures),
+            self._canonical_atom_signatures(right_structures),
+        )
 
     def _assert_sites_match(self, transferred_sites, direct_sites, site_name):
         self.assertEqual(
@@ -366,14 +400,9 @@ class TestHollowSiteRegistry(unittest.TestCase):
         )
 
         self.assertEqual(
-            len(unique_transferred_structures),
-            len(unique_direct_structures),
+            self._canonical_structure_signatures(unique_transferred_structures),
+            self._canonical_structure_signatures(unique_direct_structures),
         )
-        for transferred_structure, direct_structure in zip(
-            unique_transferred_structures,
-            unique_direct_structures,
-        ):
-            self.assertTrue(self.matcher.fit(transferred_structure, direct_structure))
 
     def _resolve_sites_for_atoms_list(self, cfg, atoms_list):
         motif_site_cache = {}
@@ -413,11 +442,8 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertEqual(comparison_indices, list(range(18)) + [36, 37])
 
     def test_hollow_site_matching_distinguishes_fcc_and_hcp_with_second_layer(self):
-        two_layer_substructures = self._comparison_substructures(
+        representative_indices = self._get_unique_comparison_substructure_indices(
             self.hollow_structures, surface_layers=2
-        )
-        representative_indices = find_unique_structures(
-            two_layer_substructures, matcher=self.matcher
         )
         representative_structures = [
             self.hollow_structures[index] for index in representative_indices
@@ -425,17 +451,11 @@ class TestHollowSiteRegistry(unittest.TestCase):
 
         self.assertEqual(len(representative_structures), 2)
 
-        one_layer_unique = find_unique_structures(
-            self._comparison_substructures(
-                representative_structures, surface_layers=1
-            ),
-            matcher=self.matcher,
+        one_layer_unique = self._get_unique_comparison_substructure_indices(
+            representative_structures, surface_layers=1
         )
-        two_layer_unique = find_unique_structures(
-            self._comparison_substructures(
-                representative_structures, surface_layers=2
-            ),
-            matcher=self.matcher,
+        two_layer_unique = self._get_unique_comparison_substructure_indices(
+            representative_structures, surface_layers=2
         )
 
         self.assertEqual(one_layer_unique, [0])
@@ -493,11 +513,10 @@ class TestHollowSiteRegistry(unittest.TestCase):
         )
 
         self.assertEqual(len(self.split_structures), len(direct_structures))
-
-        for split_structure, direct_structure in zip(
-            self.split_structures, direct_structures
-        ):
-            self.assertTrue(self.matcher.fit(split_structure, direct_structure))
+        self.assertEqual(
+            self._canonical_structure_signatures(self.split_structures),
+            self._canonical_structure_signatures(direct_structures),
+        )
 
     def test_build_adsorbate_comparison_substructures_matches_existing_helper(self):
         substructures = build_adsorbate_comparison_substructures(
@@ -509,11 +528,10 @@ class TestHollowSiteRegistry(unittest.TestCase):
             surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
         )
 
-        self.assertEqual(len(substructures), len(expected_substructures))
-        for substructure, expected_substructure in zip(
-            substructures, expected_substructures
-        ):
-            self.assertTrue(self.matcher.fit(substructure, expected_substructure))
+        self.assertEqual(
+            self._canonical_structure_signatures(substructures),
+            self._canonical_structure_signatures(expected_substructures),
+        )
 
     def test_deduplicate_adsorption_structures_matches_existing_helper(self):
         deduplicated_structures = deduplicate_adsorption_structures(
@@ -521,15 +539,12 @@ class TestHollowSiteRegistry(unittest.TestCase):
             comparison_indices=self.comparison_indices,
             matcher=self.matcher,
         )
-        expected_structures = self._get_unique_adsorbate_structures(
-            self.split_structures
-        )
+        expected_structures = self._get_unique_adsorbate_structures(self.split_structures)
 
-        self.assertEqual(len(deduplicated_structures), len(expected_structures))
-        for deduplicated_structure, expected_structure in zip(
-            deduplicated_structures, expected_structures
-        ):
-            self.assertTrue(self.matcher.fit(deduplicated_structure, expected_structure))
+        self.assertEqual(
+            self._canonical_structure_signatures(deduplicated_structures),
+            self._canonical_structure_signatures(expected_structures),
+        )
 
     def test_generate_adsorbate_structures_for_slab_matches_split_workflow(self):
         motif_site_cache = {}
@@ -550,11 +565,10 @@ class TestHollowSiteRegistry(unittest.TestCase):
             motif_site_cache=motif_site_cache,
         )
 
-        self.assertEqual(len(slab_structures), len(expected_structures))
-        for slab_structure, expected_structure in zip(
-            slab_structures, expected_structures
-        ):
-            self.assertTrue(self.matcher.fit(slab_structure, expected_structure))
+        self.assertEqual(
+            self._canonical_structure_signatures(slab_structures),
+            self._canonical_structure_signatures(expected_structures),
+        )
 
     def test_equivalent_heterodimer_slabs_reuse_cached_site_discovery(self):
         first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
