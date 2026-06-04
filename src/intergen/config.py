@@ -37,6 +37,7 @@ class AdsorbateConfig(BaseModel):
     tag: int
     surface_layers_for_matching: int
     reuse_site_templates_for_two_swap_motifs: bool = True
+    template_site_match_tolerance: float = 0.5
 
 
 class Config(BaseModel):

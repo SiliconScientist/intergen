@@ -42,6 +42,7 @@ def make_config(
     reuse_site_templates_for_two_swap_motifs=True,
     num_swaps=1,
     size=(3, 3, 4),
+    template_site_match_tolerance=0.5,
 ):
     return Config(
         structure={
@@ -67,6 +68,7 @@ def make_config(
             "reuse_site_templates_for_two_swap_motifs": (
                 reuse_site_templates_for_two_swap_motifs
             ),
+            "template_site_match_tolerance": template_site_match_tolerance,
         },
     )
 
@@ -84,6 +86,14 @@ class TestConfig(unittest.TestCase):
         )
 
         self.assertFalse(cfg.adsorbate.reuse_site_templates_for_two_swap_motifs)
+
+    def test_adsorbate_template_site_match_tolerance_is_parsed(self):
+        cfg = make_config(
+            surface_layers_for_matching=2,
+            template_site_match_tolerance=0.25,
+        )
+
+        self.assertEqual(cfg.adsorbate.template_site_match_tolerance, 0.25)
 
     def test_supports_two_swap_motif_template_reuse_requires_supported_case(self):
         supported_cfg = make_config(
@@ -230,6 +240,19 @@ class TestTemplateSiteMatching(unittest.TestCase):
         self.assertTrue(
             np.allclose(selected_sites["hollow"][0], discovered_sites["hollow"][0])
         )
+
+    def test_select_sites_matching_template_coordinates_includes_boundary_distance(self):
+        discovered_coordinates = [np.array([0.2, 0.0, 1.0])]
+        template_coordinates = [np.array([0.0, 0.0, 1.0])]
+
+        selected_coordinates = select_sites_matching_template_coordinates(
+            discovered_coordinates=discovered_coordinates,
+            template_coordinates=template_coordinates,
+            tolerance=0.2,
+        )
+
+        self.assertEqual(len(selected_coordinates), 1)
+        self.assertTrue(np.allclose(selected_coordinates[0], discovered_coordinates[0]))
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
@@ -757,6 +780,93 @@ class TestHollowSiteRegistry(unittest.TestCase):
             self._canonical_structure_signatures(generated_structures),
             self._canonical_structure_signatures(expected_structures),
         )
+
+    def test_template_hit_path_uses_configured_tolerance_boundary(self):
+        first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        first_structure = AseAtomsAdaptor().get_structure(first_heterodimer)
+        second_structure = AseAtomsAdaptor().get_structure(second_heterodimer)
+        loose_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+            template_site_match_tolerance=0.2,
+        )
+        strict_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+            template_site_match_tolerance=0.19,
+        )
+        loose_cache = {}
+        strict_cache = {}
+
+        generate_adsorbate_structures_for_slab(
+            cfg=loose_cfg,
+            atoms=first_heterodimer,
+            slab=first_structure,
+            adsorbate=self.adsorbate,
+            atoms_per_layer=self.atoms_per_layer,
+            comparison_indices=self.comparison_indices,
+            matcher=self.matcher,
+            motif_site_cache=loose_cache,
+            stats=AdsorbateGenerationStats(slabs_processed=1),
+        )
+        generate_adsorbate_structures_for_slab(
+            cfg=strict_cfg,
+            atoms=first_heterodimer,
+            slab=first_structure,
+            adsorbate=self.adsorbate,
+            atoms_per_layer=self.atoms_per_layer,
+            comparison_indices=self.comparison_indices,
+            matcher=self.matcher,
+            motif_site_cache=strict_cache,
+            stats=AdsorbateGenerationStats(slabs_processed=1),
+        )
+        transferred_sites = transfer_adsorption_site_template(
+            structure=second_structure,
+            template=next(iter(loose_cache.values())),
+            atoms_per_layer=self.atoms_per_layer,
+        )
+        boundary_sites = {
+            "hollow": [transferred_sites["hollow"][0] + np.array([0.2, 0.0, 0.0])]
+        }
+
+        with patch(
+            "intergen.adsorbate.discover_adsorption_sites",
+            return_value=boundary_sites,
+        ):
+            loose_structures = generate_adsorbate_structures_for_slab(
+                cfg=loose_cfg,
+                atoms=second_heterodimer,
+                slab=second_structure,
+                adsorbate=self.adsorbate,
+                atoms_per_layer=self.atoms_per_layer,
+                comparison_indices=self.comparison_indices,
+                matcher=self.matcher,
+                motif_site_cache=loose_cache,
+                stats=AdsorbateGenerationStats(slabs_processed=1),
+            )
+        with patch(
+            "intergen.adsorbate.discover_adsorption_sites",
+            return_value=boundary_sites,
+        ):
+            strict_structures = generate_adsorbate_structures_for_slab(
+                cfg=strict_cfg,
+                atoms=second_heterodimer,
+                slab=second_structure,
+                adsorbate=self.adsorbate,
+                atoms_per_layer=self.atoms_per_layer,
+                comparison_indices=self.comparison_indices,
+                matcher=self.matcher,
+                motif_site_cache=strict_cache,
+                stats=AdsorbateGenerationStats(slabs_processed=1),
+            )
+
+        self.assertEqual(len(loose_structures), 1)
+        self.assertEqual(len(strict_structures), 0)
 
     def test_site_template_reuse_can_be_enabled_or_disabled(self):
         first_heterodimer = swap_atoms(self.atoms, 0, "Cu")

@@ -43,6 +43,7 @@ sites = ["ontop", "bridge", "hollow"] # Supported: "ontop", "bridge", "hollow"
 tag = 0
 surface_layers_for_matching = 2       # Use 1 to collapse FCC/HCP hollow registries.
 reuse_site_templates_for_two_swap_motifs = true
+template_site_match_tolerance = 0.5   # Cartesian distance tolerance when mapping raw sites onto a cached template.
 
 [adsorbate.matcher]
 ltol = 0.05

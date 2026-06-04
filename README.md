@@ -14,6 +14,8 @@ Set `surface_layers_for_matching = 2` to distinguish FCC and HCP hollow sites on
 What is cached:
 - A motif-class adsorption-site template, not final adsorbate structures.
 - Each cached site is stored as fractional in-plane coordinates plus height above the top-layer plane.
+- On cache hits, raw discovered sites are mapped onto that template and the closest raw site within
+  `adsorbate.template_site_match_tolerance` is kept for each template site.
 
 When the fast path is used:
 - `reuse_site_templates_for_two_swap_motifs = true`
@@ -29,4 +31,9 @@ When it falls back:
 
 Correctness assumption:
 - motif-equivalent slabs in the validated cases share the same adsorption-site template, so a template discovered on one slab can be transferred cheaply to another slab of the same motif class.
+- once a template exists for that motif class, the template becomes the canonical deduplicated site set for later slabs in the cache-hit path
 - If that assumption does not hold for a case you care about, disable the fast path and the code will use direct `find_adsorption_sites()` calls for every slab.
+
+Tuning:
+- `adsorbate.template_site_match_tolerance` controls how far a newly discovered raw site can be from a cached template site and still count as the same binding site.
+- The default is `0.5`, which preserves the current regression-tested behavior. Tighten it if you want cache-hit mapping to be more conservative.

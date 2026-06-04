@@ -423,9 +423,11 @@ def generate_adsorbate_structures_for_slab(
             template=motif_site_cache[cache_key],
             atoms_per_layer=atoms_per_layer,
         )
+        # Cache hits treat the template as the canonical deduplicated site set.
         selected_sites = select_sites_matching_template(
             discovered_sites=discovered_sites,
             template_sites=template_sites,
+            tolerance=cfg.adsorbate.template_site_match_tolerance,
         )
         return apply_adsorption_sites(
             cfg=cfg,
