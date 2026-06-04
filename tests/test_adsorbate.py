@@ -10,6 +10,7 @@ from pymatgen.core import Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from intergen.adsorbate import (
+    AdsorbateGenerationStats,
     build_adsorption_site_template,
     add_adsorbates,
     apply_adsorption_sites,
@@ -21,6 +22,7 @@ from intergen.adsorbate import (
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
     get_top_layer_host_element,
+    resolve_adsorption_sites,
     select_sites_matching_template,
     select_sites_matching_template_coordinates,
     supports_two_swap_motif_template_reuse,
@@ -373,6 +375,24 @@ class TestHollowSiteRegistry(unittest.TestCase):
         ):
             self.assertTrue(self.matcher.fit(transferred_structure, direct_structure))
 
+    def _resolve_sites_for_atoms_list(self, cfg, atoms_list):
+        motif_site_cache = {}
+        stats = AdsorbateGenerationStats(slabs_processed=len(atoms_list))
+        resolved_sites = []
+        for atoms in atoms_list:
+            structure = AseAtomsAdaptor().get_structure(atoms)
+            resolved_sites.append(
+                resolve_adsorption_sites(
+                    cfg=cfg,
+                    atoms=atoms,
+                    structure=structure,
+                    atoms_per_layer=self.atoms_per_layer,
+                    motif_site_cache=motif_site_cache,
+                    stats=stats,
+                )
+            )
+        return resolved_sites, stats
+
     def test_get_adsorbate_comparison_indices_uses_requested_surface_layers(self):
         comparison_indices = get_adsorbate_comparison_indices(
             atoms_per_layer=9,
@@ -422,19 +442,25 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertEqual(two_layer_unique, [0, 1])
 
     def test_get_adsorbate_structures_distinguishes_hollow_registry_by_layer_count(self):
-        one_layer_cfg = make_config(surface_layers_for_matching=1)
-        two_layer_cfg = make_config(surface_layers_for_matching=2)
+        one_layer_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=self.atoms_per_layer,
+            surface_layers=1,
+            adsorbate_indices=self.adsorbate_index,
+        )
+        two_layer_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=self.atoms_per_layer,
+            surface_layers=2,
+            adsorbate_indices=self.adsorbate_index,
+        )
 
-        one_layer_structures = get_adsorbate_structures(
-            cfg=one_layer_cfg,
-            atoms_list=[self.atoms],
-            adsorbate=self.adsorbate,
+        one_layer_structures = deduplicate_adsorption_structures(
+            structures=self.split_structures,
+            comparison_indices=one_layer_indices,
             matcher=self.matcher,
         )
-        two_layer_structures = get_adsorbate_structures(
-            cfg=two_layer_cfg,
-            atoms_list=[self.atoms],
-            adsorbate=self.adsorbate,
+        two_layer_structures = deduplicate_adsorption_structures(
+            structures=self.split_structures,
+            comparison_indices=two_layer_indices,
             matcher=self.matcher,
         )
 
@@ -535,34 +561,26 @@ class TestHollowSiteRegistry(unittest.TestCase):
         first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
         second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
         second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
-        stdout = io.StringIO()
         supported_cfg = make_config(
             surface_layers_for_matching=2,
             reuse_site_templates_for_two_swap_motifs=True,
             num_swaps=2,
         )
+        resolved_sites, stats = self._resolve_sites_for_atoms_list(
+            cfg=supported_cfg,
+            atoms_list=[first_heterodimer, second_heterodimer],
+        )
 
-        with redirect_stdout(stdout):
-            structures = get_adsorbate_structures(
-                cfg=supported_cfg,
-                atoms_list=[first_heterodimer, second_heterodimer],
-                adsorbate=self.adsorbate,
-                matcher=self.matcher,
-            )
-
-        output = stdout.getvalue()
-
-        self.assertGreater(len(structures), 0)
-        self.assertIn("slabs=2", output)
-        self.assertIn("site_finder_calls=1", output)
+        self.assertEqual(stats.slabs_processed, 2)
+        self.assertEqual(stats.site_finder_calls, 1)
+        self.assertGreater(len(resolved_sites[0]["hollow"]), 0)
+        self.assertGreater(len(resolved_sites[1]["hollow"]), 0)
 
     def test_site_template_reuse_can_be_enabled_or_disabled(self):
         first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
         first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
         second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
         second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
-        enabled_stdout = io.StringIO()
-        disabled_stdout = io.StringIO()
         enabled_cfg = make_config(
             surface_layers_for_matching=2,
             reuse_site_templates_for_two_swap_motifs=True,
@@ -574,24 +592,17 @@ class TestHollowSiteRegistry(unittest.TestCase):
             num_swaps=2,
         )
 
-        with redirect_stdout(enabled_stdout):
-            get_adsorbate_structures(
-                cfg=enabled_cfg,
-                atoms_list=[first_heterodimer, second_heterodimer],
-                adsorbate=self.adsorbate,
-                matcher=self.matcher,
-            )
+        _, enabled_stats = self._resolve_sites_for_atoms_list(
+            cfg=enabled_cfg,
+            atoms_list=[first_heterodimer, second_heterodimer],
+        )
+        _, disabled_stats = self._resolve_sites_for_atoms_list(
+            cfg=disabled_cfg,
+            atoms_list=[first_heterodimer, second_heterodimer],
+        )
 
-        with redirect_stdout(disabled_stdout):
-            get_adsorbate_structures(
-                cfg=disabled_cfg,
-                atoms_list=[first_heterodimer, second_heterodimer],
-                adsorbate=self.adsorbate,
-                matcher=self.matcher,
-            )
-
-        self.assertIn("site_finder_calls=1", enabled_stdout.getvalue())
-        self.assertIn("site_finder_calls=2", disabled_stdout.getvalue())
+        self.assertEqual(enabled_stats.site_finder_calls, 1)
+        self.assertEqual(disabled_stats.site_finder_calls, 2)
 
     def test_transferred_heterodimer_sites_match_fresh_discovery(self):
         first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
@@ -621,26 +632,20 @@ class TestHollowSiteRegistry(unittest.TestCase):
         first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
         second_heterodimer = swap_atoms(pd_atoms, 3, "Cu")
         second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
-        stdout = io.StringIO()
         supported_cfg = make_config(
             surface_layers_for_matching=2,
             reuse_site_templates_for_two_swap_motifs=True,
             num_swaps=2,
         )
+        resolved_sites, stats = self._resolve_sites_for_atoms_list(
+            cfg=supported_cfg,
+            atoms_list=[first_heterodimer, second_heterodimer],
+        )
 
-        with redirect_stdout(stdout):
-            structures = get_adsorbate_structures(
-                cfg=supported_cfg,
-                atoms_list=[first_heterodimer, second_heterodimer],
-                adsorbate=self.adsorbate,
-                matcher=self.matcher,
-            )
-
-        output = stdout.getvalue()
-
-        self.assertGreater(len(structures), 0)
-        self.assertIn("slabs=2", output)
-        self.assertIn("site_finder_calls=1", output)
+        self.assertEqual(stats.slabs_processed, 2)
+        self.assertEqual(stats.site_finder_calls, 1)
+        self.assertGreater(len(resolved_sites[0]["hollow"]), 0)
+        self.assertGreater(len(resolved_sites[1]["hollow"]), 0)
 
     def test_mixed_pt_pd_hosts_do_not_share_cached_templates(self):
         pt_first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
@@ -652,31 +657,26 @@ class TestHollowSiteRegistry(unittest.TestCase):
         pd_first_heterodimer = swap_atoms(pd_first_heterodimer, 1, "Au")
         pd_second_heterodimer = swap_atoms(pd_atoms, 3, "Cu")
         pd_second_heterodimer = swap_atoms(pd_second_heterodimer, 4, "Au")
-        stdout = io.StringIO()
         supported_cfg = make_config(
             surface_layers_for_matching=2,
             reuse_site_templates_for_two_swap_motifs=True,
             num_swaps=2,
         )
+        resolved_sites, stats = self._resolve_sites_for_atoms_list(
+            cfg=supported_cfg,
+            atoms_list=[
+                pt_first_heterodimer,
+                pt_second_heterodimer,
+                pd_first_heterodimer,
+                pd_second_heterodimer,
+            ],
+        )
 
-        with redirect_stdout(stdout):
-            structures = get_adsorbate_structures(
-                cfg=supported_cfg,
-                atoms_list=[
-                    pt_first_heterodimer,
-                    pt_second_heterodimer,
-                    pd_first_heterodimer,
-                    pd_second_heterodimer,
-                ],
-                adsorbate=self.adsorbate,
-                matcher=self.matcher,
-            )
-
-        output = stdout.getvalue()
-
-        self.assertGreater(len(structures), 0)
-        self.assertIn("slabs=4", output)
-        self.assertIn("site_finder_calls=2", output)
+        self.assertEqual(stats.slabs_processed, 4)
+        self.assertEqual(stats.site_finder_calls, 2)
+        self.assertTrue(
+            all(len(site_coordinates["hollow"]) > 0 for site_coordinates in resolved_sites)
+        )
 
     def test_pd_transferred_dual_single_atom_alloy_sites_match_fresh_discovery(self):
         pd_atoms = self._make_host_atoms("Pd")
