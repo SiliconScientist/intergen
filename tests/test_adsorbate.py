@@ -1,6 +1,7 @@
 import io
 import unittest
 from contextlib import redirect_stdout
+from unittest.mock import patch
 
 import numpy as np
 from ase.build import fcc111
@@ -232,6 +233,15 @@ class TestTemplateSiteMatching(unittest.TestCase):
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
+    class CountingMatcher:
+        def __init__(self, matcher):
+            self.matcher = matcher
+            self.fit_calls = 0
+
+        def fit(self, left_structure, right_structure):
+            self.fit_calls += 1
+            return self.matcher.fit(left_structure, right_structure)
+
     @staticmethod
     def _make_host_atoms(host, size=(3, 3, 4)):
         atoms = fcc111(host, size=size, vacuum=10.0)[::-1]
@@ -633,6 +643,121 @@ class TestHollowSiteRegistry(unittest.TestCase):
         )
         self.assertGreater(len(first_structures), 0)
 
+    def test_template_hit_path_does_not_use_matcher_dedup(self):
+        first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        supported_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+        )
+        motif_site_cache = {}
+        generate_adsorbate_structures_for_slab(
+            cfg=supported_cfg,
+            atoms=first_heterodimer,
+            slab=AseAtomsAdaptor().get_structure(first_heterodimer),
+            adsorbate=self.adsorbate,
+            atoms_per_layer=self.atoms_per_layer,
+            comparison_indices=self.comparison_indices,
+            matcher=self.matcher,
+            motif_site_cache=motif_site_cache,
+            stats=AdsorbateGenerationStats(slabs_processed=1),
+        )
+
+        class FailOnFitMatcher:
+            def fit(self, left_structure, right_structure):
+                raise AssertionError("matcher dedup should not run on template hits")
+
+        cache_hit_stats = AdsorbateGenerationStats(slabs_processed=1)
+        structures = generate_adsorbate_structures_for_slab(
+            cfg=supported_cfg,
+            atoms=second_heterodimer,
+            slab=AseAtomsAdaptor().get_structure(second_heterodimer),
+            adsorbate=self.adsorbate,
+            atoms_per_layer=self.atoms_per_layer,
+            comparison_indices=self.comparison_indices,
+            matcher=FailOnFitMatcher(),
+            motif_site_cache=motif_site_cache,
+            stats=cache_hit_stats,
+        )
+
+        self.assertGreater(len(structures), 0)
+        self.assertEqual(cache_hit_stats.matching_seconds, 0.0)
+
+    def test_template_hit_path_collapses_overlapping_raw_sites(self):
+        first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
+        first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
+        second_heterodimer = swap_atoms(self.atoms, 3, "Cu")
+        second_heterodimer = swap_atoms(second_heterodimer, 4, "Au")
+        supported_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=2,
+        )
+        first_structure = AseAtomsAdaptor().get_structure(first_heterodimer)
+        second_structure = AseAtomsAdaptor().get_structure(second_heterodimer)
+        motif_site_cache = {}
+
+        generate_adsorbate_structures_for_slab(
+            cfg=supported_cfg,
+            atoms=first_heterodimer,
+            slab=first_structure,
+            adsorbate=self.adsorbate,
+            atoms_per_layer=self.atoms_per_layer,
+            comparison_indices=self.comparison_indices,
+            matcher=self.matcher,
+            motif_site_cache=motif_site_cache,
+            stats=AdsorbateGenerationStats(slabs_processed=1),
+        )
+        transferred_sites = transfer_adsorption_site_template(
+            structure=second_structure,
+            template=next(iter(motif_site_cache.values())),
+            atoms_per_layer=self.atoms_per_layer,
+        )
+        overlapping_sites = {
+            "hollow": [
+                transferred_sites["hollow"][0] + np.array([0.02, 0.0, 0.0]),
+                transferred_sites["hollow"][0] + np.array([0.08, 0.0, 0.0]),
+                transferred_sites["hollow"][1] + np.array([0.03, 0.0, 0.0]),
+            ]
+        }
+        expected_selected_sites = {
+            "hollow": [
+                overlapping_sites["hollow"][0],
+                overlapping_sites["hollow"][2],
+            ]
+        }
+        expected_structures = apply_adsorption_sites(
+            cfg=self.cfg,
+            structure=second_structure,
+            adsorbate=self.adsorbate,
+            site_coordinates=expected_selected_sites,
+        )
+
+        with patch(
+            "intergen.adsorbate.discover_adsorption_sites",
+            return_value=overlapping_sites,
+        ):
+            generated_structures = generate_adsorbate_structures_for_slab(
+                cfg=supported_cfg,
+                atoms=second_heterodimer,
+                slab=second_structure,
+                adsorbate=self.adsorbate,
+                atoms_per_layer=self.atoms_per_layer,
+                comparison_indices=self.comparison_indices,
+                matcher=self.matcher,
+                motif_site_cache=motif_site_cache,
+                stats=AdsorbateGenerationStats(slabs_processed=1),
+            )
+
+        self.assertEqual(len(generated_structures), 2)
+        self.assertEqual(
+            self._canonical_structure_signatures(generated_structures),
+            self._canonical_structure_signatures(expected_structures),
+        )
+
     def test_site_template_reuse_can_be_enabled_or_disabled(self):
         first_heterodimer = swap_atoms(self.atoms, 0, "Cu")
         first_heterodimer = swap_atoms(first_heterodimer, 1, "Au")
@@ -820,6 +945,32 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self._assert_structure_lists_match(
             fallback_structures, exact_structures, matcher=self.matcher
         )
+
+    def test_unsupported_motif_still_uses_matcher_dedup(self):
+        unsupported_cfg = make_config(
+            surface_layers_for_matching=2,
+            reuse_site_templates_for_two_swap_motifs=True,
+            num_swaps=1,
+        )
+        counting_matcher = self.CountingMatcher(self.matcher)
+        single_swap = swap_atoms(self.atoms, 0, "Cu")
+        stats = AdsorbateGenerationStats(slabs_processed=1)
+
+        structures = generate_adsorbate_structures_for_slab(
+            cfg=unsupported_cfg,
+            atoms=single_swap,
+            slab=AseAtomsAdaptor().get_structure(single_swap),
+            adsorbate=self.adsorbate,
+            atoms_per_layer=self.atoms_per_layer,
+            comparison_indices=self.comparison_indices,
+            matcher=counting_matcher,
+            motif_site_cache={},
+            stats=stats,
+        )
+
+        self.assertGreater(len(structures), 0)
+        self.assertGreater(counting_matcher.fit_calls, 0)
+        self.assertGreater(stats.matching_seconds, 0.0)
 
     def test_unsupported_surface_size_uses_exact_path_and_preserves_results(self):
         large_atoms = fcc111("Pt", size=(2, 3, 4), vacuum=10.0)[::-1]
