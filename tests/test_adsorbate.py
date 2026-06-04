@@ -21,7 +21,6 @@ from intergen.adsorbate import (
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
     get_top_layer_host_element,
-    resolve_adsorption_sites,
     select_sites_matching_template,
     select_sites_matching_template_coordinates,
     supports_two_swap_motif_template_reuse,
@@ -232,25 +231,44 @@ class TestTemplateSiteMatching(unittest.TestCase):
 
 
 class TestHollowSiteRegistry(unittest.TestCase):
-    def setUp(self):
-        self.cfg = make_config(surface_layers_for_matching=2)
-        atoms = self._make_host_atoms("Pt")
-        self.atoms = atoms
-        atoms.set_pbc(True)
-        self.slab = AseAtomsAdaptor().get_structure(atoms)
-        self.site_finder = AdsorbateSiteFinder(self.slab)
-        self.adsorbate = Molecule(
-            ["N"], [[0.0, 0.0, 0.0]], site_properties={"tags": [0]}
-        )
-        self.matcher = StructureMatcher(ltol=0.05, stol=0.1, angle_tol=5.0)
-        self.atoms_per_layer = 9
-        self.adsorbate_index = [len(self.slab)]
-
-    def _make_host_atoms(self, host, size=(3, 3, 4)):
+    @staticmethod
+    def _make_host_atoms(host, size=(3, 3, 4)):
         atoms = fcc111(host, size=size, vacuum=10.0)[::-1]
         atoms.set_tags([0] * len(atoms))
         atoms.set_pbc(True)
         return atoms
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cfg = make_config(surface_layers_for_matching=2)
+        cls.atoms = cls._make_host_atoms("Pt")
+        cls.slab = AseAtomsAdaptor().get_structure(cls.atoms)
+        cls.site_finder = AdsorbateSiteFinder(cls.slab)
+        cls.adsorbate = Molecule(
+            ["N"], [[0.0, 0.0, 0.0]], site_properties={"tags": [0]}
+        )
+        cls.matcher = StructureMatcher(ltol=0.05, stol=0.1, angle_tol=5.0)
+        cls.atoms_per_layer = 9
+        cls.adsorbate_index = [len(cls.slab)]
+        cls.comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=cls.atoms_per_layer,
+            surface_layers=cls.cfg.adsorbate.surface_layers_for_matching,
+            adsorbate_indices=cls.adsorbate_index,
+        )
+        cls.discovered_sites = discover_adsorption_sites(cls.slab)
+        cls.split_structures = apply_adsorption_sites(
+            cfg=cls.cfg,
+            structure=cls.slab,
+            adsorbate=cls.adsorbate,
+            site_coordinates=cls.discovered_sites,
+        )
+        cls.hollow_sites = cls.site_finder.find_adsorption_sites(symm_reduce=False)[
+            "hollow"
+        ]
+        cls.hollow_structures = [
+            cls.site_finder.add_adsorbate(cls.adsorbate, coords)
+            for coords in cls.hollow_sites
+        ]
 
     def _comparison_substructures(self, structures, surface_layers):
         comparison_indices = get_adsorbate_comparison_indices(
@@ -375,22 +393,14 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertEqual(comparison_indices, list(range(18)) + [36, 37])
 
     def test_hollow_site_matching_distinguishes_fcc_and_hcp_with_second_layer(self):
-        hollow_sites = self.site_finder.find_adsorption_sites(symm_reduce=False)[
-            "hollow"
-        ]
-        hollow_structures = [
-            self.site_finder.add_adsorbate(self.adsorbate, coords)
-            for coords in hollow_sites
-        ]
-
         two_layer_substructures = self._comparison_substructures(
-            hollow_structures, surface_layers=2
+            self.hollow_structures, surface_layers=2
         )
         representative_indices = find_unique_structures(
             two_layer_substructures, matcher=self.matcher
         )
         representative_structures = [
-            hollow_structures[index] for index in representative_indices
+            self.hollow_structures[index] for index in representative_indices
         ]
 
         self.assertEqual(len(representative_structures), 2)
@@ -450,45 +460,26 @@ class TestHollowSiteRegistry(unittest.TestCase):
         self.assertIn("site_finder_calls=1", output)
 
     def test_discover_then_apply_matches_add_adsorbates_for_single_slab(self):
-        discovered_sites = discover_adsorption_sites(self.slab)
-
-        split_structures = apply_adsorption_sites(
-            cfg=self.cfg,
-            structure=self.slab,
-            adsorbate=self.adsorbate,
-            site_coordinates=discovered_sites,
-        )
         direct_structures = add_adsorbates(
             cfg=self.cfg,
             structure=self.slab,
             adsorbate=self.adsorbate,
         )
 
-        self.assertEqual(len(split_structures), len(direct_structures))
+        self.assertEqual(len(self.split_structures), len(direct_structures))
 
-        for split_structure, direct_structure in zip(split_structures, direct_structures):
+        for split_structure, direct_structure in zip(
+            self.split_structures, direct_structures
+        ):
             self.assertTrue(self.matcher.fit(split_structure, direct_structure))
 
     def test_build_adsorbate_comparison_substructures_matches_existing_helper(self):
-        discovered_sites = discover_adsorption_sites(self.slab)
-        structures = apply_adsorption_sites(
-            cfg=self.cfg,
-            structure=self.slab,
-            adsorbate=self.adsorbate,
-            site_coordinates=discovered_sites,
-        )
-        comparison_indices = get_adsorbate_comparison_indices(
-            atoms_per_layer=self.atoms_per_layer,
-            surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
-            adsorbate_indices=self.adsorbate_index,
-        )
-
         substructures = build_adsorbate_comparison_substructures(
-            structures=structures,
-            comparison_indices=comparison_indices,
+            structures=self.split_structures,
+            comparison_indices=self.comparison_indices,
         )
         expected_substructures = self._comparison_substructures(
-            structures,
+            self.split_structures,
             surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
         )
 
@@ -499,25 +490,14 @@ class TestHollowSiteRegistry(unittest.TestCase):
             self.assertTrue(self.matcher.fit(substructure, expected_substructure))
 
     def test_deduplicate_adsorption_structures_matches_existing_helper(self):
-        discovered_sites = discover_adsorption_sites(self.slab)
-        structures = apply_adsorption_sites(
-            cfg=self.cfg,
-            structure=self.slab,
-            adsorbate=self.adsorbate,
-            site_coordinates=discovered_sites,
-        )
-        comparison_indices = get_adsorbate_comparison_indices(
-            atoms_per_layer=self.atoms_per_layer,
-            surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
-            adsorbate_indices=self.adsorbate_index,
-        )
-
         deduplicated_structures = deduplicate_adsorption_structures(
-            structures=structures,
-            comparison_indices=comparison_indices,
+            structures=self.split_structures,
+            comparison_indices=self.comparison_indices,
             matcher=self.matcher,
         )
-        expected_structures = self._get_unique_adsorbate_structures(structures)
+        expected_structures = self._get_unique_adsorbate_structures(
+            self.split_structures
+        )
 
         self.assertEqual(len(deduplicated_structures), len(expected_structures))
         for deduplicated_structure, expected_structure in zip(
@@ -527,28 +507,9 @@ class TestHollowSiteRegistry(unittest.TestCase):
 
     def test_generate_adsorbate_structures_for_slab_matches_split_workflow(self):
         motif_site_cache = {}
-        comparison_indices = get_adsorbate_comparison_indices(
-            atoms_per_layer=self.atoms_per_layer,
-            surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
-            adsorbate_indices=self.adsorbate_index,
-        )
-
-        site_coordinates = resolve_adsorption_sites(
-            cfg=self.cfg,
-            atoms=self.atoms,
-            structure=self.slab,
-            atoms_per_layer=self.atoms_per_layer,
-            motif_site_cache=motif_site_cache,
-        )
-        structures = apply_adsorption_sites(
-            cfg=self.cfg,
-            structure=self.slab,
-            adsorbate=self.adsorbate,
-            site_coordinates=site_coordinates,
-        )
         expected_structures = deduplicate_adsorption_structures(
-            structures=structures,
-            comparison_indices=comparison_indices,
+            structures=self.split_structures,
+            comparison_indices=self.comparison_indices,
             matcher=self.matcher,
         )
 
@@ -558,9 +519,9 @@ class TestHollowSiteRegistry(unittest.TestCase):
             slab=self.slab,
             adsorbate=self.adsorbate,
             atoms_per_layer=self.atoms_per_layer,
-            comparison_indices=comparison_indices,
+            comparison_indices=self.comparison_indices,
             matcher=self.matcher,
-            motif_site_cache={},
+            motif_site_cache=motif_site_cache,
         )
 
         self.assertEqual(len(slab_structures), len(expected_structures))
