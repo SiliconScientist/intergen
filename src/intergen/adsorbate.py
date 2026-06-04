@@ -200,6 +200,21 @@ def resolve_adsorption_sites(
     )
 
 
+def get_adsorption_template_cache_details(
+    cfg: Config,
+    atoms: Atoms,
+    atoms_per_layer: int,
+) -> tuple[bool, tuple[str, str]]:
+    host_element = get_top_layer_host_element(
+        atoms=atoms, atoms_per_layer=atoms_per_layer
+    )
+    motif = classify_top_layer_motif(atoms=atoms, atoms_per_layer=atoms_per_layer)
+    return supports_two_swap_motif_template_reuse(cfg=cfg, motif=motif), (
+        host_element,
+        motif,
+    )
+
+
 def get_site_coordinate_distance(
     coordinate_a: np.ndarray | tuple[float, float, float],
     coordinate_b: np.ndarray | tuple[float, float, float],
@@ -300,6 +315,26 @@ def select_sites_matching_template(
     return selected_sites
 
 
+def flatten_adsorption_site_coordinates(
+    cfg: Config,
+    site_coordinates: dict[str, list[np.ndarray]],
+) -> list[tuple[str, np.ndarray]]:
+    flattened_coordinates = []
+    for site in cfg.adsorbate.sites:
+        for coordinate in site_coordinates.get(site, []):
+            flattened_coordinates.append((site, np.asarray(coordinate)))
+    return flattened_coordinates
+
+
+def group_adsorption_site_coordinates(
+    flattened_coordinates: list[tuple[str, np.ndarray]],
+) -> dict[str, list[np.ndarray]]:
+    grouped_coordinates: dict[str, list[np.ndarray]] = {}
+    for site, coordinate in flattened_coordinates:
+        grouped_coordinates.setdefault(site, []).append(coordinate)
+    return grouped_coordinates
+
+
 def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int]:
     """Returns the indices of the adsorbate in the structure."""
     structure_len = len(structure)
@@ -330,12 +365,12 @@ def build_adsorbate_comparison_substructures(
     ]
 
 
-def deduplicate_adsorption_structures(
+def get_unique_adsorption_structure_indices(
     structures: list[Structure],
     comparison_indices: list[int],
     matcher: StructureMatcher,
     stats: AdsorbateGenerationStats | None = None,
-) -> list[Structure]:
+) -> list[int]:
     matching_start = perf_counter()
     comparison_structures = build_adsorbate_comparison_substructures(
         structures=structures,
@@ -346,6 +381,21 @@ def deduplicate_adsorption_structures(
     )
     if stats is not None:
         stats.matching_seconds += perf_counter() - matching_start
+    return unique_indices
+
+
+def deduplicate_adsorption_structures(
+    structures: list[Structure],
+    comparison_indices: list[int],
+    matcher: StructureMatcher,
+    stats: AdsorbateGenerationStats | None = None,
+) -> list[Structure]:
+    unique_indices = get_unique_adsorption_structure_indices(
+        structures=structures,
+        comparison_indices=comparison_indices,
+        matcher=matcher,
+        stats=stats,
+    )
     return [structures[i] for i in unique_indices]
 
 
@@ -360,26 +410,56 @@ def generate_adsorbate_structures_for_slab(
     motif_site_cache: dict[tuple[str, str], AdsorptionSiteTemplate],
     stats: AdsorbateGenerationStats | None = None,
 ) -> list[Structure]:
-    site_coordinates = resolve_adsorption_sites(
+    can_reuse, cache_key = get_adsorption_template_cache_details(
         cfg=cfg,
         atoms=atoms,
-        structure=slab,
         atoms_per_layer=atoms_per_layer,
-        motif_site_cache=motif_site_cache,
-        stats=stats,
     )
+    discovered_sites = discover_adsorption_sites(structure=slab, stats=stats)
+
+    if can_reuse and cache_key in motif_site_cache:
+        template_sites = transfer_adsorption_site_template(
+            structure=slab,
+            template=motif_site_cache[cache_key],
+            atoms_per_layer=atoms_per_layer,
+        )
+        selected_sites = select_sites_matching_template(
+            discovered_sites=discovered_sites,
+            template_sites=template_sites,
+        )
+        return apply_adsorption_sites(
+            cfg=cfg,
+            structure=slab,
+            adsorbate=adsorbate,
+            site_coordinates=selected_sites,
+        )
+
     structures = apply_adsorption_sites(
         cfg=cfg,
         structure=slab,
         adsorbate=adsorbate,
-        site_coordinates=site_coordinates,
+        site_coordinates=discovered_sites,
     )
-    return deduplicate_adsorption_structures(
+    unique_indices = get_unique_adsorption_structure_indices(
         structures=structures,
         comparison_indices=comparison_indices,
         matcher=matcher,
         stats=stats,
     )
+    if can_reuse:
+        flattened_coordinates = flatten_adsorption_site_coordinates(
+            cfg=cfg,
+            site_coordinates=discovered_sites,
+        )
+        unique_site_coordinates = group_adsorption_site_coordinates(
+            [flattened_coordinates[index] for index in unique_indices]
+        )
+        motif_site_cache[cache_key] = build_adsorption_site_template(
+            structure=slab,
+            site_coordinates=unique_site_coordinates,
+            atoms_per_layer=atoms_per_layer,
+        )
+    return [structures[i] for i in unique_indices]
 
 
 def get_adsorbate_structures(
