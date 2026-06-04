@@ -34,6 +34,34 @@ class AdsorbateGenerationStats:
         )
 
 
+@dataclass
+class AdsorbateSlabStats:
+    slab_index: int
+    cache_key: tuple[str, str]
+    template_eligible: bool
+    template_cache_hit: bool
+    structures_emitted: int
+    site_finder_calls: int
+    site_finding_seconds: float
+    matching_seconds: float
+
+    def summary(self) -> str:
+        host_element, motif = self.cache_key
+        path = "template-hit" if self.template_cache_hit else "seed-or-fallback"
+        return (
+            "Adsorbate slab stats: "
+            f"slab={self.slab_index}, "
+            f"host={host_element}, "
+            f"motif={motif}, "
+            f"template_eligible={self.template_eligible}, "
+            f"path={path}, "
+            f"structures={self.structures_emitted}, "
+            f"site_finder_calls={self.site_finder_calls}, "
+            f"site_finding_seconds={self.site_finding_seconds:.3f}, "
+            f"matching_seconds={self.matching_seconds:.3f}"
+        )
+
+
 MOTIF_SITE_CACHEABLE = {"heterodimer", "dual_single_atom_alloy"}
 DEFAULT_TEMPLATE_SITE_MATCH_TOLERANCE = 0.5
 
@@ -212,6 +240,29 @@ def get_adsorption_template_cache_details(
     return supports_two_swap_motif_template_reuse(cfg=cfg, motif=motif), (
         host_element,
         motif,
+    )
+
+
+def build_adsorbate_slab_stats(
+    slab_index: int,
+    cache_key: tuple[str, str],
+    template_eligible: bool,
+    template_cache_hit: bool,
+    structures_emitted: int,
+    stats_before: AdsorbateGenerationStats,
+    stats_after: AdsorbateGenerationStats,
+) -> AdsorbateSlabStats:
+    return AdsorbateSlabStats(
+        slab_index=slab_index,
+        cache_key=cache_key,
+        template_eligible=template_eligible,
+        template_cache_hit=template_cache_hit,
+        structures_emitted=structures_emitted,
+        site_finder_calls=stats_after.site_finder_calls - stats_before.site_finder_calls,
+        site_finding_seconds=(
+            stats_after.site_finding_seconds - stats_before.site_finding_seconds
+        ),
+        matching_seconds=stats_after.matching_seconds - stats_before.matching_seconds,
     )
 
 
@@ -486,7 +537,19 @@ def get_adsorbate_structures(
     )
     motif_site_cache = {}
     atoms_list = []
-    for atoms, slab in zip(source_atoms_list, slabs):
+    for slab_index, (atoms, slab) in enumerate(zip(source_atoms_list, slabs), start=1):
+        template_eligible, cache_key = get_adsorption_template_cache_details(
+            cfg=cfg,
+            atoms=atoms,
+            atoms_per_layer=atoms_per_layer,
+        )
+        template_cache_hit = template_eligible and cache_key in motif_site_cache
+        stats_before = AdsorbateGenerationStats(
+            slabs_processed=stats.slabs_processed,
+            site_finder_calls=stats.site_finder_calls,
+            site_finding_seconds=stats.site_finding_seconds,
+            matching_seconds=stats.matching_seconds,
+        )
         unique_structures = generate_adsorbate_structures_for_slab(
             cfg=cfg,
             atoms=atoms,
@@ -498,6 +561,16 @@ def get_adsorbate_structures(
             motif_site_cache=motif_site_cache,
             stats=stats,
         )
+        slab_stats = build_adsorbate_slab_stats(
+            slab_index=slab_index,
+            cache_key=cache_key,
+            template_eligible=template_eligible,
+            template_cache_hit=template_cache_hit,
+            structures_emitted=len(unique_structures),
+            stats_before=stats_before,
+            stats_after=stats,
+        )
+        print(slab_stats.summary())
         unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
         atoms_list.extend(unique_atoms)
     print(stats.summary())
