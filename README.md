@@ -16,6 +16,8 @@ What is cached:
 - Each cached site is stored as fractional in-plane coordinates plus height above the top-layer plane.
 - On cache hits, raw discovered sites are mapped onto that template and the closest raw site within
   `adsorbate.template_site_match_tolerance` is kept for each template site.
+- That mapping is intentionally greedy: valid template/raw pairs are sorted by distance, then accepted
+  nearest-first without backtracking.
 
 When the fast path is used:
 - `reuse_site_templates_for_two_swap_motifs = true`
@@ -37,3 +39,5 @@ Correctness assumption:
 Tuning:
 - `adsorbate.template_site_match_tolerance` controls how far a newly discovered raw site can be from a cached template site and still count as the same binding site.
 - The default is `0.5`, which preserves the current regression-tested behavior. Tighten it if you want cache-hit mapping to be more conservative.
+- The cache-hit matching policy favors speed over globally optimal assignment. If multiple nearby raw
+  sites compete for multiple template sites, the nearest-first greedy choice wins.

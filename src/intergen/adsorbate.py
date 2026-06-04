@@ -21,16 +21,24 @@ from intergen.surface import (
 class AdsorbateGenerationStats:
     slabs_processed: int = 0
     site_finder_calls: int = 0
+    pymatgen_conversion_seconds: float = 0.0
     site_finding_seconds: float = 0.0
+    site_selection_seconds: float = 0.0
+    adsorbate_placement_seconds: float = 0.0
     matching_seconds: float = 0.0
+    ase_conversion_seconds: float = 0.0
 
     def summary(self) -> str:
         return (
             "Adsorbate generation stats: "
             f"slabs={self.slabs_processed}, "
             f"site_finder_calls={self.site_finder_calls}, "
+            f"pymatgen_conversion_seconds={self.pymatgen_conversion_seconds:.3f}, "
             f"site_finding_seconds={self.site_finding_seconds:.3f}, "
-            f"matching_seconds={self.matching_seconds:.3f}"
+            f"site_selection_seconds={self.site_selection_seconds:.3f}, "
+            f"adsorbate_placement_seconds={self.adsorbate_placement_seconds:.3f}, "
+            f"matching_seconds={self.matching_seconds:.3f}, "
+            f"ase_conversion_seconds={self.ase_conversion_seconds:.3f}"
         )
 
 
@@ -42,8 +50,12 @@ class AdsorbateSlabStats:
     template_cache_hit: bool
     structures_emitted: int
     site_finder_calls: int
+    pymatgen_conversion_seconds: float
     site_finding_seconds: float
+    site_selection_seconds: float
+    adsorbate_placement_seconds: float
     matching_seconds: float
+    ase_conversion_seconds: float
 
     def summary(self) -> str:
         host_element, motif = self.cache_key
@@ -57,8 +69,12 @@ class AdsorbateSlabStats:
             f"path={path}, "
             f"structures={self.structures_emitted}, "
             f"site_finder_calls={self.site_finder_calls}, "
+            f"pymatgen_conversion_seconds={self.pymatgen_conversion_seconds:.3f}, "
             f"site_finding_seconds={self.site_finding_seconds:.3f}, "
-            f"matching_seconds={self.matching_seconds:.3f}"
+            f"site_selection_seconds={self.site_selection_seconds:.3f}, "
+            f"adsorbate_placement_seconds={self.adsorbate_placement_seconds:.3f}, "
+            f"matching_seconds={self.matching_seconds:.3f}, "
+            f"ase_conversion_seconds={self.ase_conversion_seconds:.3f}"
         )
 
 
@@ -259,10 +275,24 @@ def build_adsorbate_slab_stats(
         template_cache_hit=template_cache_hit,
         structures_emitted=structures_emitted,
         site_finder_calls=stats_after.site_finder_calls - stats_before.site_finder_calls,
+        pymatgen_conversion_seconds=(
+            stats_after.pymatgen_conversion_seconds
+            - stats_before.pymatgen_conversion_seconds
+        ),
         site_finding_seconds=(
             stats_after.site_finding_seconds - stats_before.site_finding_seconds
         ),
+        site_selection_seconds=(
+            stats_after.site_selection_seconds - stats_before.site_selection_seconds
+        ),
+        adsorbate_placement_seconds=(
+            stats_after.adsorbate_placement_seconds
+            - stats_before.adsorbate_placement_seconds
+        ),
         matching_seconds=stats_after.matching_seconds - stats_before.matching_seconds,
+        ase_conversion_seconds=(
+            stats_after.ase_conversion_seconds - stats_before.ase_conversion_seconds
+        ),
     )
 
 
@@ -278,73 +308,31 @@ def select_sites_matching_template_coordinates(
     template_coordinates: list[np.ndarray],
     tolerance: float = DEFAULT_TEMPLATE_SITE_MATCH_TOLERANCE,
 ) -> list[np.ndarray]:
-    candidate_matches_by_template = []
+    # Explicit greedy policy: sort all valid template/discovered pairs by distance
+    # and accept the nearest pair whenever neither side has been used yet.
+    candidate_matches = []
     for template_index, template_coordinate in enumerate(template_coordinates):
-        template_candidates = []
         for discovered_index, discovered_coordinate in enumerate(discovered_coordinates):
             distance = get_site_coordinate_distance(
                 template_coordinate, discovered_coordinate
             )
             if distance <= tolerance:
-                template_candidates.append((distance, discovered_index))
-        template_candidates.sort()
-        candidate_matches_by_template.append(template_candidates)
+                candidate_matches.append((distance, template_index, discovered_index))
 
-    best_match_count = -1
-    best_total_distance = float("inf")
-    best_matches: list[tuple[int, int]] = []
+    candidate_matches.sort()
+    used_template_indices = set()
+    used_discovered_indices = set()
+    selected_matches = []
+    for _, template_index, discovered_index in candidate_matches:
+        if template_index in used_template_indices:
+            continue
+        if discovered_index in used_discovered_indices:
+            continue
+        used_template_indices.add(template_index)
+        used_discovered_indices.add(discovered_index)
+        selected_matches.append((template_index, discovered_index))
 
-    def search(
-        template_index: int,
-        used_discovered_indices: set[int],
-        current_matches: list[tuple[int, int]],
-        current_distance: float,
-    ) -> None:
-        nonlocal best_match_count, best_total_distance, best_matches
-        if template_index == len(template_coordinates):
-            match_count = len(current_matches)
-            if match_count > best_match_count:
-                best_match_count = match_count
-                best_total_distance = current_distance
-                best_matches = list(current_matches)
-                return
-            if (
-                match_count == best_match_count
-                and current_distance < best_total_distance
-            ):
-                best_total_distance = current_distance
-                best_matches = list(current_matches)
-            return
-
-        search(
-            template_index + 1,
-            used_discovered_indices=used_discovered_indices,
-            current_matches=current_matches,
-            current_distance=current_distance,
-        )
-
-        for distance, discovered_index in candidate_matches_by_template[template_index]:
-            if discovered_index in used_discovered_indices:
-                continue
-            used_discovered_indices.add(discovered_index)
-            current_matches.append((template_index, discovered_index))
-            search(
-                template_index + 1,
-                used_discovered_indices=used_discovered_indices,
-                current_matches=current_matches,
-                current_distance=current_distance + distance,
-            )
-            current_matches.pop()
-            used_discovered_indices.remove(discovered_index)
-
-    search(
-        template_index=0,
-        used_discovered_indices=set(),
-        current_matches=[],
-        current_distance=0.0,
-    )
-
-    selected_matches = sorted(best_matches)
+    selected_matches.sort()
     return [
         discovered_coordinates[discovered_index]
         for _, discovered_index in selected_matches
@@ -475,24 +463,34 @@ def generate_adsorbate_structures_for_slab(
             atoms_per_layer=atoms_per_layer,
         )
         # Cache hits treat the template as the canonical deduplicated site set.
+        site_selection_start = perf_counter()
         selected_sites = select_sites_matching_template(
             discovered_sites=discovered_sites,
             template_sites=template_sites,
             tolerance=cfg.adsorbate.template_site_match_tolerance,
         )
-        return apply_adsorption_sites(
+        if stats is not None:
+            stats.site_selection_seconds += perf_counter() - site_selection_start
+        placement_start = perf_counter()
+        structures = apply_adsorption_sites(
             cfg=cfg,
             structure=slab,
             adsorbate=adsorbate,
             site_coordinates=selected_sites,
         )
+        if stats is not None:
+            stats.adsorbate_placement_seconds += perf_counter() - placement_start
+        return structures
 
+    placement_start = perf_counter()
     structures = apply_adsorption_sites(
         cfg=cfg,
         structure=slab,
         adsorbate=adsorbate,
         site_coordinates=discovered_sites,
     )
+    if stats is not None:
+        stats.adsorbate_placement_seconds += perf_counter() - placement_start
     unique_indices = get_unique_adsorption_structure_indices(
         structures=structures,
         comparison_indices=comparison_indices,
@@ -524,10 +522,12 @@ def get_adsorbate_structures(
 ):
     """Generates all unique structures with the specified adsorbate."""
     source_atoms_list = atoms_list
+    conversion_start = perf_counter()
     slabs = prepare_for_pymatgen(source_atoms_list)
     if not slabs:
         return []
     stats = AdsorbateGenerationStats(slabs_processed=len(slabs))
+    stats.pymatgen_conversion_seconds += perf_counter() - conversion_start
     atoms_per_layer = get_atoms_per_layer(cfg=cfg)
     comparison_indices = get_adsorbate_comparison_indices(
         atoms_per_layer=atoms_per_layer,
@@ -547,8 +547,12 @@ def get_adsorbate_structures(
         stats_before = AdsorbateGenerationStats(
             slabs_processed=stats.slabs_processed,
             site_finder_calls=stats.site_finder_calls,
+            pymatgen_conversion_seconds=stats.pymatgen_conversion_seconds,
             site_finding_seconds=stats.site_finding_seconds,
+            site_selection_seconds=stats.site_selection_seconds,
+            adsorbate_placement_seconds=stats.adsorbate_placement_seconds,
             matching_seconds=stats.matching_seconds,
+            ase_conversion_seconds=stats.ase_conversion_seconds,
         )
         unique_structures = generate_adsorbate_structures_for_slab(
             cfg=cfg,
@@ -561,6 +565,9 @@ def get_adsorbate_structures(
             motif_site_cache=motif_site_cache,
             stats=stats,
         )
+        ase_conversion_start = perf_counter()
+        unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
+        stats.ase_conversion_seconds += perf_counter() - ase_conversion_start
         slab_stats = build_adsorbate_slab_stats(
             slab_index=slab_index,
             cache_key=cache_key,
@@ -571,7 +578,6 @@ def get_adsorbate_structures(
             stats_after=stats,
         )
         print(slab_stats.summary())
-        unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
         atoms_list.extend(unique_atoms)
     print(stats.summary())
     return atoms_list

@@ -190,7 +190,7 @@ class TestTemplateSiteMatching(unittest.TestCase):
 
         self.assertEqual(selected_coordinates, [])
 
-    def test_select_sites_matching_template_coordinates_does_not_reuse_discovered_site(
+    def test_select_sites_matching_template_coordinates_uses_explicit_greedy_policy(
         self,
     ):
         shared_discovered_coordinate = np.array([0.08, 0.0, 1.0])
@@ -209,11 +209,12 @@ class TestTemplateSiteMatching(unittest.TestCase):
             tolerance=0.2,
         )
 
-        self.assertEqual(len(selected_coordinates), 2)
+        # The nearest pair wins first, even though a different global assignment
+        # could match both template sites.
+        self.assertEqual(len(selected_coordinates), 1)
         self.assertTrue(
             np.allclose(selected_coordinates[0], shared_discovered_coordinate)
         )
-        self.assertTrue(np.allclose(selected_coordinates[1], discovered_coordinates[1]))
 
     def test_select_sites_matching_template_matches_per_site_name(self):
         discovered_sites = {
