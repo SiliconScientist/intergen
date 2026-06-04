@@ -7,7 +7,7 @@ import numpy as np
 from ase.build import fcc111
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
-from pymatgen.core import Molecule
+from pymatgen.core import Lattice, Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from intergen.adsorbate import (
@@ -151,6 +151,15 @@ class TestTemplateSiteMatching(unittest.TestCase):
 
         self.assertEqual(distance, 5.0)
 
+    def test_get_site_coordinate_distance_uses_minimum_image_with_lattice(self):
+        distance = get_site_coordinate_distance(
+            np.array([0.0, 0.0, 1.0]),
+            np.array([9.8, 0.0, 1.0]),
+            lattice=Lattice.cubic(10.0),
+        )
+
+        self.assertAlmostEqual(distance, 0.2)
+
     def test_select_sites_matching_template_coordinates_keeps_closest_match(self):
         discovered_coordinates = [
             np.array([0.04, 0.0, 1.0]),
@@ -242,14 +251,15 @@ class TestTemplateSiteMatching(unittest.TestCase):
             np.allclose(selected_sites["hollow"][0], discovered_sites["hollow"][0])
         )
 
-    def test_select_sites_matching_template_coordinates_includes_boundary_distance(self):
-        discovered_coordinates = [np.array([0.2, 0.0, 1.0])]
+    def test_select_sites_matching_template_coordinates_matches_across_boundary(self):
+        discovered_coordinates = [np.array([9.8, 0.0, 1.0])]
         template_coordinates = [np.array([0.0, 0.0, 1.0])]
 
         selected_coordinates = select_sites_matching_template_coordinates(
             discovered_coordinates=discovered_coordinates,
             template_coordinates=template_coordinates,
             tolerance=0.2,
+            lattice=Lattice.cubic(10.0),
         )
 
         self.assertEqual(len(selected_coordinates), 1)

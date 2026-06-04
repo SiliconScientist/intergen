@@ -3,7 +3,7 @@ from time import perf_counter
 
 import numpy as np
 from ase import Atoms
-from pymatgen.core import Molecule, Structure
+from pymatgen.core import Lattice, Molecule, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
@@ -299,7 +299,15 @@ def build_adsorbate_slab_stats(
 def get_site_coordinate_distance(
     coordinate_a: np.ndarray | tuple[float, float, float],
     coordinate_b: np.ndarray | tuple[float, float, float],
+    lattice: Lattice | None = None,
 ) -> float:
+    if lattice is not None:
+        fractional_delta = lattice.get_fractional_coords(coordinate_a) - lattice.get_fractional_coords(
+            coordinate_b
+        )
+        fractional_delta -= np.round(fractional_delta)
+        cartesian_delta = lattice.get_cartesian_coords(fractional_delta)
+        return float(np.linalg.norm(cartesian_delta))
     return float(np.linalg.norm(np.asarray(coordinate_a) - np.asarray(coordinate_b)))
 
 
@@ -307,6 +315,7 @@ def select_sites_matching_template_coordinates(
     discovered_coordinates: list[np.ndarray],
     template_coordinates: list[np.ndarray],
     tolerance: float = DEFAULT_TEMPLATE_SITE_MATCH_TOLERANCE,
+    lattice: Lattice | None = None,
 ) -> list[np.ndarray]:
     # Explicit greedy policy: sort all valid template/discovered pairs by distance
     # and accept the nearest pair whenever neither side has been used yet.
@@ -314,7 +323,7 @@ def select_sites_matching_template_coordinates(
     for template_index, template_coordinate in enumerate(template_coordinates):
         for discovered_index, discovered_coordinate in enumerate(discovered_coordinates):
             distance = get_site_coordinate_distance(
-                template_coordinate, discovered_coordinate
+                template_coordinate, discovered_coordinate, lattice=lattice
             )
             if distance <= tolerance:
                 candidate_matches.append((distance, template_index, discovered_index))
@@ -343,6 +352,7 @@ def select_sites_matching_template(
     discovered_sites: dict[str, list[np.ndarray]],
     template_sites: dict[str, list[np.ndarray]],
     tolerance: float = DEFAULT_TEMPLATE_SITE_MATCH_TOLERANCE,
+    lattice: Lattice | None = None,
 ) -> dict[str, list[np.ndarray]]:
     selected_sites = {}
     for site, template_coordinates in template_sites.items():
@@ -350,6 +360,7 @@ def select_sites_matching_template(
             discovered_coordinates=discovered_sites.get(site, []),
             template_coordinates=template_coordinates,
             tolerance=tolerance,
+            lattice=lattice,
         )
     return selected_sites
 
@@ -468,6 +479,7 @@ def generate_adsorbate_structures_for_slab(
             discovered_sites=discovered_sites,
             template_sites=template_sites,
             tolerance=cfg.adsorbate.template_site_match_tolerance,
+            lattice=slab.lattice,
         )
         if stats is not None:
             stats.site_selection_seconds += perf_counter() - site_selection_start
