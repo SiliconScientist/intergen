@@ -13,10 +13,14 @@ from intergen.adsorbate import (
     build_adsorption_site_template,
     add_adsorbates,
     apply_adsorption_sites,
+    build_adsorbate_comparison_substructures,
+    deduplicate_adsorption_structures,
     discover_adsorption_sites,
+    generate_adsorbate_structures_for_slab,
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
     get_top_layer_host_element,
+    resolve_adsorption_sites,
     supports_two_swap_motif_template_reuse,
     transfer_adsorption_site_template,
 )
@@ -361,6 +365,106 @@ class TestHollowSiteRegistry(unittest.TestCase):
 
         for split_structure, direct_structure in zip(split_structures, direct_structures):
             self.assertTrue(self.matcher.fit(split_structure, direct_structure))
+
+    def test_build_adsorbate_comparison_substructures_matches_existing_helper(self):
+        discovered_sites = discover_adsorption_sites(self.slab)
+        structures = apply_adsorption_sites(
+            cfg=self.cfg,
+            structure=self.slab,
+            adsorbate=self.adsorbate,
+            site_coordinates=discovered_sites,
+        )
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=self.atoms_per_layer,
+            surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
+            adsorbate_indices=self.adsorbate_index,
+        )
+
+        substructures = build_adsorbate_comparison_substructures(
+            structures=structures,
+            comparison_indices=comparison_indices,
+        )
+        expected_substructures = self._comparison_substructures(
+            structures,
+            surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
+        )
+
+        self.assertEqual(len(substructures), len(expected_substructures))
+        for substructure, expected_substructure in zip(
+            substructures, expected_substructures
+        ):
+            self.assertTrue(self.matcher.fit(substructure, expected_substructure))
+
+    def test_deduplicate_adsorption_structures_matches_existing_helper(self):
+        discovered_sites = discover_adsorption_sites(self.slab)
+        structures = apply_adsorption_sites(
+            cfg=self.cfg,
+            structure=self.slab,
+            adsorbate=self.adsorbate,
+            site_coordinates=discovered_sites,
+        )
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=self.atoms_per_layer,
+            surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
+            adsorbate_indices=self.adsorbate_index,
+        )
+
+        deduplicated_structures = deduplicate_adsorption_structures(
+            structures=structures,
+            comparison_indices=comparison_indices,
+            matcher=self.matcher,
+        )
+        expected_structures = self._get_unique_adsorbate_structures(structures)
+
+        self.assertEqual(len(deduplicated_structures), len(expected_structures))
+        for deduplicated_structure, expected_structure in zip(
+            deduplicated_structures, expected_structures
+        ):
+            self.assertTrue(self.matcher.fit(deduplicated_structure, expected_structure))
+
+    def test_generate_adsorbate_structures_for_slab_matches_split_workflow(self):
+        motif_site_cache = {}
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=self.atoms_per_layer,
+            surface_layers=self.cfg.adsorbate.surface_layers_for_matching,
+            adsorbate_indices=self.adsorbate_index,
+        )
+
+        site_coordinates = resolve_adsorption_sites(
+            cfg=self.cfg,
+            atoms=self.atoms,
+            structure=self.slab,
+            atoms_per_layer=self.atoms_per_layer,
+            motif_site_cache=motif_site_cache,
+        )
+        structures = apply_adsorption_sites(
+            cfg=self.cfg,
+            structure=self.slab,
+            adsorbate=self.adsorbate,
+            site_coordinates=site_coordinates,
+        )
+        expected_structures = deduplicate_adsorption_structures(
+            structures=structures,
+            comparison_indices=comparison_indices,
+            matcher=self.matcher,
+        )
+
+        slab_structures = generate_adsorbate_structures_for_slab(
+            cfg=self.cfg,
+            atoms=self.atoms,
+            slab=self.slab,
+            adsorbate=self.adsorbate,
+            atoms_per_layer=self.atoms_per_layer,
+            comparison_indices=comparison_indices,
+            matcher=self.matcher,
+            motif_site_cache={},
+        )
+
+        self.assertEqual(len(slab_structures), len(expected_structures))
+        for slab_structure, expected_structure in zip(
+            slab_structures, expected_structures
+        ):
+            self.assertTrue(self.matcher.fit(slab_structure, expected_structure))
 
     def test_equivalent_heterodimer_slabs_reuse_cached_site_discovery(self):
         first_heterodimer = swap_atoms(self.atoms, 0, "Cu")

@@ -181,6 +181,24 @@ def get_cached_adsorption_sites(
     return site_coordinates
 
 
+def resolve_adsorption_sites(
+    cfg: Config,
+    atoms: Atoms,
+    structure: Structure,
+    atoms_per_layer: int,
+    motif_site_cache: dict[tuple[str, str], AdsorptionSiteTemplate],
+    stats: AdsorbateGenerationStats | None = None,
+) -> dict[str, list]:
+    return get_cached_adsorption_sites(
+        cfg=cfg,
+        atoms=atoms,
+        structure=structure,
+        atoms_per_layer=atoms_per_layer,
+        motif_site_cache=motif_site_cache,
+        stats=stats,
+    )
+
+
 def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int]:
     """Returns the indices of the adsorbate in the structure."""
     structure_len = len(structure)
@@ -199,6 +217,68 @@ def get_adsorbate_comparison_indices(
     surface_indices = list(range(atoms_per_layer * surface_layers))
     matched_adsorbate_indices = adsorbate_indices[:adsorbate_atoms_for_matching]
     return surface_indices + matched_adsorbate_indices
+
+
+def build_adsorbate_comparison_substructures(
+    structures: list[Structure],
+    comparison_indices: list[int],
+) -> list[Structure]:
+    return [
+        get_substructure(structure, indices=comparison_indices)
+        for structure in structures
+    ]
+
+
+def deduplicate_adsorption_structures(
+    structures: list[Structure],
+    comparison_indices: list[int],
+    matcher: StructureMatcher,
+    stats: AdsorbateGenerationStats | None = None,
+) -> list[Structure]:
+    matching_start = perf_counter()
+    comparison_structures = build_adsorbate_comparison_substructures(
+        structures=structures,
+        comparison_indices=comparison_indices,
+    )
+    unique_indices = find_unique_structures(
+        structures=comparison_structures, matcher=matcher
+    )
+    if stats is not None:
+        stats.matching_seconds += perf_counter() - matching_start
+    return [structures[i] for i in unique_indices]
+
+
+def generate_adsorbate_structures_for_slab(
+    cfg: Config,
+    atoms: Atoms,
+    slab: Structure,
+    adsorbate: Molecule,
+    atoms_per_layer: int,
+    comparison_indices: list[int],
+    matcher: StructureMatcher,
+    motif_site_cache: dict[tuple[str, str], AdsorptionSiteTemplate],
+    stats: AdsorbateGenerationStats | None = None,
+) -> list[Structure]:
+    site_coordinates = resolve_adsorption_sites(
+        cfg=cfg,
+        atoms=atoms,
+        structure=slab,
+        atoms_per_layer=atoms_per_layer,
+        motif_site_cache=motif_site_cache,
+        stats=stats,
+    )
+    structures = apply_adsorption_sites(
+        cfg=cfg,
+        structure=slab,
+        adsorbate=adsorbate,
+        site_coordinates=site_coordinates,
+    )
+    return deduplicate_adsorption_structures(
+        structures=structures,
+        comparison_indices=comparison_indices,
+        matcher=matcher,
+        stats=stats,
+    )
 
 
 def get_adsorbate_structures(
@@ -224,30 +304,17 @@ def get_adsorbate_structures(
     motif_site_cache = {}
     atoms_list = []
     for atoms, slab in zip(source_atoms_list, slabs):
-        site_coordinates = get_cached_adsorption_sites(
+        unique_structures = generate_adsorbate_structures_for_slab(
             cfg=cfg,
             atoms=atoms,
-            structure=slab,
+            slab=slab,
+            adsorbate=adsorbate,
             atoms_per_layer=atoms_per_layer,
+            comparison_indices=comparison_indices,
+            matcher=matcher,
             motif_site_cache=motif_site_cache,
             stats=stats,
         )
-        structures = apply_adsorption_sites(
-            cfg=cfg,
-            structure=slab,
-            adsorbate=adsorbate,
-            site_coordinates=site_coordinates,
-        )
-        matching_start = perf_counter()
-        subsubstructures = [
-            get_substructure(structure, indices=comparison_indices)
-            for structure in structures
-        ]
-        unique_indices = find_unique_structures(
-            structures=subsubstructures, matcher=matcher
-        )
-        stats.matching_seconds += perf_counter() - matching_start
-        unique_structures = [structures[i] for i in unique_indices]
         unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
         atoms_list.extend(unique_atoms)
     print(stats.summary())
