@@ -17,10 +17,13 @@ from intergen.adsorbate import (
     deduplicate_adsorption_structures,
     discover_adsorption_sites,
     generate_adsorbate_structures_for_slab,
+    get_site_coordinate_distance,
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
     get_top_layer_host_element,
     resolve_adsorption_sites,
+    select_sites_matching_template,
+    select_sites_matching_template_coordinates,
     supports_two_swap_motif_template_reuse,
     transfer_adsorption_site_template,
 )
@@ -126,6 +129,106 @@ class TestConfig(unittest.TestCase):
         atoms = swap_atoms(atoms, 1, "Au")
 
         self.assertEqual(get_top_layer_host_element(atoms, atoms_per_layer=9), "Pt")
+
+
+class TestTemplateSiteMatching(unittest.TestCase):
+    def test_get_site_coordinate_distance_returns_euclidean_distance(self):
+        distance = get_site_coordinate_distance(
+            np.array([0.0, 0.0, 0.0]),
+            np.array([3.0, 4.0, 0.0]),
+        )
+
+        self.assertEqual(distance, 5.0)
+
+    def test_select_sites_matching_template_coordinates_keeps_closest_match(self):
+        discovered_coordinates = [
+            np.array([0.04, 0.0, 1.0]),
+            np.array([0.18, 0.0, 1.0]),
+            np.array([1.07, 0.0, 1.0]),
+        ]
+        template_coordinates = [
+            np.array([0.0, 0.0, 1.0]),
+            np.array([1.0, 0.0, 1.0]),
+        ]
+
+        selected_coordinates = select_sites_matching_template_coordinates(
+            discovered_coordinates=discovered_coordinates,
+            template_coordinates=template_coordinates,
+            tolerance=0.2,
+        )
+
+        self.assertEqual(len(selected_coordinates), 2)
+        self.assertTrue(np.allclose(selected_coordinates[0], discovered_coordinates[0]))
+        self.assertTrue(np.allclose(selected_coordinates[1], discovered_coordinates[2]))
+
+    def test_select_sites_matching_template_coordinates_respects_tolerance(self):
+        discovered_coordinates = [
+            np.array([0.25, 0.0, 1.0]),
+            np.array([1.4, 0.0, 1.0]),
+        ]
+        template_coordinates = [
+            np.array([0.0, 0.0, 1.0]),
+            np.array([1.0, 0.0, 1.0]),
+        ]
+
+        selected_coordinates = select_sites_matching_template_coordinates(
+            discovered_coordinates=discovered_coordinates,
+            template_coordinates=template_coordinates,
+            tolerance=0.2,
+        )
+
+        self.assertEqual(selected_coordinates, [])
+
+    def test_select_sites_matching_template_coordinates_does_not_reuse_discovered_site(
+        self,
+    ):
+        shared_discovered_coordinate = np.array([0.08, 0.0, 1.0])
+        discovered_coordinates = [
+            shared_discovered_coordinate,
+            np.array([0.22, 0.0, 1.0]),
+        ]
+        template_coordinates = [
+            np.array([0.0, 0.0, 1.0]),
+            np.array([0.15, 0.0, 1.0]),
+        ]
+
+        selected_coordinates = select_sites_matching_template_coordinates(
+            discovered_coordinates=discovered_coordinates,
+            template_coordinates=template_coordinates,
+            tolerance=0.2,
+        )
+
+        self.assertEqual(len(selected_coordinates), 2)
+        self.assertTrue(
+            np.allclose(selected_coordinates[0], shared_discovered_coordinate)
+        )
+        self.assertTrue(np.allclose(selected_coordinates[1], discovered_coordinates[1]))
+
+    def test_select_sites_matching_template_matches_per_site_name(self):
+        discovered_sites = {
+            "bridge": [np.array([0.03, 0.0, 1.0]), np.array([2.0, 0.0, 1.0])],
+            "hollow": [np.array([1.02, 0.0, 1.0])],
+        }
+        template_sites = {
+            "bridge": [np.array([0.0, 0.0, 1.0])],
+            "hollow": [np.array([1.0, 0.0, 1.0])],
+        }
+
+        selected_sites = select_sites_matching_template(
+            discovered_sites=discovered_sites,
+            template_sites=template_sites,
+            tolerance=0.1,
+        )
+
+        self.assertEqual(set(selected_sites), {"bridge", "hollow"})
+        self.assertEqual(len(selected_sites["bridge"]), 1)
+        self.assertEqual(len(selected_sites["hollow"]), 1)
+        self.assertTrue(
+            np.allclose(selected_sites["bridge"][0], discovered_sites["bridge"][0])
+        )
+        self.assertTrue(
+            np.allclose(selected_sites["hollow"][0], discovered_sites["hollow"][0])
+        )
 
 
 class TestHollowSiteRegistry(unittest.TestCase):

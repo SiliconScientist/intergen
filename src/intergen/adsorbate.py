@@ -35,6 +35,7 @@ class AdsorbateGenerationStats:
 
 
 MOTIF_SITE_CACHEABLE = {"heterodimer", "dual_single_atom_alloy"}
+DEFAULT_TEMPLATE_SITE_MATCH_TOLERANCE = 0.5
 
 
 @dataclass
@@ -197,6 +198,106 @@ def resolve_adsorption_sites(
         motif_site_cache=motif_site_cache,
         stats=stats,
     )
+
+
+def get_site_coordinate_distance(
+    coordinate_a: np.ndarray | tuple[float, float, float],
+    coordinate_b: np.ndarray | tuple[float, float, float],
+) -> float:
+    return float(np.linalg.norm(np.asarray(coordinate_a) - np.asarray(coordinate_b)))
+
+
+def select_sites_matching_template_coordinates(
+    discovered_coordinates: list[np.ndarray],
+    template_coordinates: list[np.ndarray],
+    tolerance: float = DEFAULT_TEMPLATE_SITE_MATCH_TOLERANCE,
+) -> list[np.ndarray]:
+    candidate_matches_by_template = []
+    for template_index, template_coordinate in enumerate(template_coordinates):
+        template_candidates = []
+        for discovered_index, discovered_coordinate in enumerate(discovered_coordinates):
+            distance = get_site_coordinate_distance(
+                template_coordinate, discovered_coordinate
+            )
+            if distance <= tolerance:
+                template_candidates.append((distance, discovered_index))
+        template_candidates.sort()
+        candidate_matches_by_template.append(template_candidates)
+
+    best_match_count = -1
+    best_total_distance = float("inf")
+    best_matches: list[tuple[int, int]] = []
+
+    def search(
+        template_index: int,
+        used_discovered_indices: set[int],
+        current_matches: list[tuple[int, int]],
+        current_distance: float,
+    ) -> None:
+        nonlocal best_match_count, best_total_distance, best_matches
+        if template_index == len(template_coordinates):
+            match_count = len(current_matches)
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_total_distance = current_distance
+                best_matches = list(current_matches)
+                return
+            if (
+                match_count == best_match_count
+                and current_distance < best_total_distance
+            ):
+                best_total_distance = current_distance
+                best_matches = list(current_matches)
+            return
+
+        search(
+            template_index + 1,
+            used_discovered_indices=used_discovered_indices,
+            current_matches=current_matches,
+            current_distance=current_distance,
+        )
+
+        for distance, discovered_index in candidate_matches_by_template[template_index]:
+            if discovered_index in used_discovered_indices:
+                continue
+            used_discovered_indices.add(discovered_index)
+            current_matches.append((template_index, discovered_index))
+            search(
+                template_index + 1,
+                used_discovered_indices=used_discovered_indices,
+                current_matches=current_matches,
+                current_distance=current_distance + distance,
+            )
+            current_matches.pop()
+            used_discovered_indices.remove(discovered_index)
+
+    search(
+        template_index=0,
+        used_discovered_indices=set(),
+        current_matches=[],
+        current_distance=0.0,
+    )
+
+    selected_matches = sorted(best_matches)
+    return [
+        discovered_coordinates[discovered_index]
+        for _, discovered_index in selected_matches
+    ]
+
+
+def select_sites_matching_template(
+    discovered_sites: dict[str, list[np.ndarray]],
+    template_sites: dict[str, list[np.ndarray]],
+    tolerance: float = DEFAULT_TEMPLATE_SITE_MATCH_TOLERANCE,
+) -> dict[str, list[np.ndarray]]:
+    selected_sites = {}
+    for site, template_coordinates in template_sites.items():
+        selected_sites[site] = select_sites_matching_template_coordinates(
+            discovered_coordinates=discovered_sites.get(site, []),
+            template_coordinates=template_coordinates,
+            tolerance=tolerance,
+        )
+    return selected_sites
 
 
 def get_adsorbate_indices(structure: Structure, adsorbate: Molecule) -> list[int]:
