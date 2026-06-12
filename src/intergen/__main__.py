@@ -11,12 +11,31 @@ from intergen.surface import (
     get_swap_plans,
 )
 from intergen.adsorbate import get_adsorbate_structures
+from intergen.constraints import constrain_adsorbate_bottom_layers
 
 
 def get_initial_atoms_list(pure_atoms, only_last_generation):
     if only_last_generation:
         return []
     return list(pure_atoms)
+
+
+def apply_database_constraints(cfg, atoms_list):
+    bottom_layers = cfg.database.constrain_bottom_layers
+    if bottom_layers <= 0:
+        return list(atoms_list)
+
+    adsorbate_len = len(cfg.adsorbate.coords)
+    return [
+        constrain_adsorbate_bottom_layers(
+            atoms,
+            adsorbate_len=adsorbate_len,
+            bottom_layers=bottom_layers,
+            z_tolerance=cfg.database.constraint_z_tolerance,
+            lowest_z_tolerance=cfg.database.constraint_lowest_z_tolerance,
+        )
+        for atoms in atoms_list
+    ]
 
 
 def main():
@@ -62,6 +81,7 @@ def main():
     atoms_list = get_adsorbate_structures(
         cfg=cfg, atoms_list=atoms_list, adsorbate=adsorbate, matcher=matcher
     )
+    atoms_list = apply_database_constraints(cfg=cfg, atoms_list=atoms_list)
     config_db = connect(cfg.database.path)
     for atoms in atoms_list:
         config_db.write(atoms)

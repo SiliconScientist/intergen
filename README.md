@@ -1,6 +1,15 @@
 # intergen
 Flexible interface generator for catalysis, surface science, and materials modeling.
 
+## Bulk constraints
+
+`database.constrain_bottom_layers` controls whether generated adsorbate slabs are written with ASE `FixAtoms` constraints.
+
+- Set `database.constrain_bottom_layers = 2` to freeze the bottom two slab layers in the written ASE DB.
+- Layer membership is determined geometrically from a best-fit plane through the lowest slab atoms, not from atom ordering alone.
+- `database.constraint_z_tolerance` controls how heights are clustered into layers.
+- `database.constraint_lowest_z_tolerance` controls which atoms define the bottom-plane fit.
+
 ## Adsorbate matching
 
 `adsorbate.surface_layers_for_matching` controls how many slab layers are used when deduplicating adsorbate structures.

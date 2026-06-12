@@ -35,6 +35,9 @@ swap_elements = [
 
 [database]
 path = "data/example.db"
+constrain_bottom_layers = 2         # Set to 0 to disable FixAtoms generation.
+constraint_z_tolerance = 0.5
+constraint_lowest_z_tolerance = 0.5
 
 [adsorbate]
 species = "N"

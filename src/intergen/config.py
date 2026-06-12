@@ -21,6 +21,9 @@ class GenerationConfig(BaseModel):
 
 class DatabaseConfig(BaseModel):
     path: Path
+    constrain_bottom_layers: int = 0
+    constraint_z_tolerance: float = 0.5
+    constraint_lowest_z_tolerance: float = 0.5
 
 
 class MatcherConfig(BaseModel):
