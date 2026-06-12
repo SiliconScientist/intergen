@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from ase.db import connect
 from ase.visualize import view
 from pymatgen.core import Molecule
@@ -11,7 +13,10 @@ from intergen.surface import (
     get_swap_plans,
 )
 from intergen.adsorbate import get_adsorbate_structures
-from intergen.constraints import constrain_adsorbate_bottom_layers
+from intergen.constraints import (
+    constrain_adsorbate_bottom_layers,
+    has_adsorbate_bottom_layer_constraints,
+)
 
 
 def get_initial_atoms_list(pure_atoms, only_last_generation):
@@ -26,23 +31,59 @@ def apply_database_constraints(cfg, atoms_list):
         return list(atoms_list)
 
     adsorbate_len = len(cfg.adsorbate.coords)
-    return [
-        constrain_adsorbate_bottom_layers(
+    constrained_atoms_list = []
+    for atoms in atoms_list:
+        if has_adsorbate_bottom_layer_constraints(
             atoms,
             adsorbate_len=adsorbate_len,
             bottom_layers=bottom_layers,
             z_tolerance=cfg.database.constraint_z_tolerance,
             lowest_z_tolerance=cfg.database.constraint_lowest_z_tolerance,
+        ):
+            constrained_atoms_list.append(atoms)
+            continue
+        constrained_atoms_list.append(
+            constrain_adsorbate_bottom_layers(
+                atoms,
+                adsorbate_len=adsorbate_len,
+                bottom_layers=bottom_layers,
+                z_tolerance=cfg.database.constraint_z_tolerance,
+                lowest_z_tolerance=cfg.database.constraint_lowest_z_tolerance,
+            )
         )
-        for atoms in atoms_list
-    ]
+    return constrained_atoms_list
+
+
+def write_atoms_database(path: Path, atoms_list) -> None:
+    if path.exists():
+        path.unlink()
+    config_db = connect(path)
+    for atoms in atoms_list:
+        config_db.write(atoms)
+
+
+def get_database_atoms_list(path: Path):
+    config_db = connect(path)
+    return [row.toatoms() for row in config_db.select()]
 
 
 def main():
     cfg = get_config()
     if cfg.database.path.exists():
-        print(f"Output already exists at {cfg.database.path}. Skipping generation.")
-        return
+        atoms_list = get_database_atoms_list(cfg.database.path)
+        if atoms_list:
+            constrained_atoms_list = apply_database_constraints(cfg=cfg, atoms_list=atoms_list)
+            if all(
+                before is after for before, after in zip(atoms_list, constrained_atoms_list)
+            ):
+                print(f"Output already exists at {cfg.database.path}. Skipping generation.")
+                return
+            write_atoms_database(cfg.database.path, constrained_atoms_list)
+            print(
+                f"Wrote {len(constrained_atoms_list)} constrained structures to "
+                f"{cfg.database.path}"
+            )
+            return
     matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
     surface_generator = iterative_swaps
     index_selector_fn = naive_surface_index_selector
@@ -82,9 +123,7 @@ def main():
         cfg=cfg, atoms_list=atoms_list, adsorbate=adsorbate, matcher=matcher
     )
     atoms_list = apply_database_constraints(cfg=cfg, atoms_list=atoms_list)
-    config_db = connect(cfg.database.path)
-    for atoms in atoms_list:
-        config_db.write(atoms)
+    write_atoms_database(cfg.database.path, atoms_list)
     print(f"Wrote {len(atoms_list)} structures to {cfg.database.path}")
 
 

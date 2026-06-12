@@ -125,6 +125,48 @@ def get_indices_for_layers(
     return sorted(indices)
 
 
+def has_fixed_atoms_constraint(atoms: Atoms, fixed_indices: Iterable[int]) -> bool:
+    expected_indices = tuple(sorted(int(index) for index in fixed_indices))
+    existing = atoms.constraints
+    if existing is None:
+        return False
+    if not isinstance(existing, (list, tuple)):
+        existing = [existing]
+
+    for constraint in existing:
+        if not isinstance(constraint, FixAtoms):
+            continue
+        if tuple(sorted(int(index) for index in constraint.get_indices())) == expected_indices:
+            return True
+    return False
+
+
+def has_adsorbate_bottom_layer_constraints(
+    atoms: Atoms,
+    adsorbate_len: int,
+    bottom_layers: int = 2,
+    z_tolerance: float = 0.5,
+    lowest_z_tolerance: float = 0.5,
+) -> bool:
+    if bottom_layers <= 0:
+        return True
+    if adsorbate_len < 0 or adsorbate_len > len(atoms):
+        raise ValueError('adsorbate_len must be between 0 and len(atoms)')
+
+    slab_atom_count = len(atoms) - adsorbate_len
+    if slab_atom_count <= 0:
+        raise ValueError('Cannot constrain slab layers without slab atoms')
+
+    slab = atoms[:slab_atom_count].copy()
+    fixed_indices = get_indices_for_layers(
+        slab,
+        layers=tuple(range(1, bottom_layers + 1)),
+        z_tolerance=z_tolerance,
+        lowest_z_tolerance=lowest_z_tolerance,
+    )
+    return has_fixed_atoms_constraint(atoms, fixed_indices)
+
+
 def constrain_adsorbate_bottom_layers(
     atoms: Atoms,
     adsorbate_len: int,
