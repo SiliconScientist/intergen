@@ -19,6 +19,15 @@ from intergen.constraints import (
 )
 
 
+def warn_if_constraints_disabled(cfg) -> None:
+    if cfg.database.constrain_bottom_layers > 0:
+        return
+    print(
+        "WARNING: database.constrain_bottom_layers is 0, so no FixAtoms constraints "
+        f"will be written to {cfg.database.path}."
+    )
+
+
 def get_initial_atoms_list(pure_atoms, only_last_generation):
     if only_last_generation:
         return []
@@ -69,6 +78,7 @@ def get_database_atoms_list(path: Path):
 
 def main():
     cfg = get_config()
+    warn_if_constraints_disabled(cfg)
     if cfg.database.path.exists():
         atoms_list = get_database_atoms_list(cfg.database.path)
         if atoms_list:
