@@ -14,12 +14,19 @@ from intergen.metadata import (
     SURFACE_TYPE_KEY,
     SWAP_ELEMENTS_KEY,
     SWAP_INDICES_KEY,
+    TOP_LAYER_MOTIF_KEY,
+    TOP_LAYER_MOTIF_DUAL_SINGLE_ATOM_ALLOY,
+    TOP_LAYER_MOTIF_HETERODIMER,
+    TOP_LAYER_MOTIF_PURE,
+    TOP_LAYER_MOTIF_SINGLE_SWAP,
 )
 from intergen.surface import (
     assign_slab_metadata,
     build_pure_surfaces,
+    classify_top_layer_motif,
     enumerate_unique_swaps,
     iterative_swaps,
+    swap_atoms,
 )
 
 
@@ -64,6 +71,7 @@ class TestSurfaceMetadata(unittest.TestCase):
         self.assertEqual(fcc_slab.info[SUPERCELL_SIZE_KEY], (2, 2, 3))
         self.assertEqual(fcc_slab.info[SWAP_INDICES_KEY], [])
         self.assertEqual(fcc_slab.info[SWAP_ELEMENTS_KEY], [])
+        self.assertEqual(fcc_slab.info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_PURE)
 
         hcp_slab = pure_atoms[1]
         self.assertEqual(hcp_slab.info[SLAB_ID_KEY], "slab-000002")
@@ -72,6 +80,7 @@ class TestSurfaceMetadata(unittest.TestCase):
         self.assertEqual(hcp_slab.info[SUPERCELL_SIZE_KEY], (2, 2, 3))
         self.assertEqual(hcp_slab.info[SWAP_INDICES_KEY], [])
         self.assertEqual(hcp_slab.info[SWAP_ELEMENTS_KEY], [])
+        self.assertEqual(hcp_slab.info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_PURE)
 
     def test_enumerate_unique_swaps_assigns_new_slab_id_and_swap_provenance(self):
         atoms = fcc111("Pt", size=(2, 2, 3), vacuum=10.0)[::-1]
@@ -100,6 +109,7 @@ class TestSurfaceMetadata(unittest.TestCase):
         self.assertEqual(swapped.info[SUPERCELL_SIZE_KEY], (2, 2, 3))
         self.assertEqual(swapped.info[SWAP_INDICES_KEY], [0])
         self.assertEqual(swapped.info[SWAP_ELEMENTS_KEY], ["Cu"])
+        self.assertEqual(swapped.info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_SINGLE_SWAP)
 
         self.assertEqual(atoms.info[SLAB_ID_KEY], "slab-000010")
         self.assertEqual(atoms.info[SWAP_INDICES_KEY], [])
@@ -127,10 +137,35 @@ class TestSurfaceMetadata(unittest.TestCase):
         self.assertEqual(first_generation.info[SLAB_ID_KEY], "slab-000003")
         self.assertEqual(first_generation.info[SWAP_INDICES_KEY], [0])
         self.assertEqual(first_generation.info[SWAP_ELEMENTS_KEY], ["Ni"])
+        self.assertEqual(
+            first_generation.info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_SINGLE_SWAP
+        )
 
         self.assertEqual(second_generation.info[SLAB_ID_KEY], "slab-000004")
         self.assertEqual(second_generation.info[SWAP_INDICES_KEY], [0, 1])
         self.assertEqual(second_generation.info[SWAP_ELEMENTS_KEY], ["Ni", "Zn"])
+        self.assertEqual(
+            second_generation.info[TOP_LAYER_MOTIF_KEY],
+            classify_top_layer_motif(second_generation, atoms_per_layer=4),
+        )
+
+    def test_classify_top_layer_motif_distinguishes_heterodimer(self):
+        atoms = fcc111("Pt", size=(3, 3, 3), vacuum=10.0)[::-1]
+        atoms = swap_atoms(atoms, 0, "Cu")
+        atoms = swap_atoms(atoms, 1, "Au")
+
+        motif = classify_top_layer_motif(atoms, atoms_per_layer=9)
+
+        self.assertEqual(motif, TOP_LAYER_MOTIF_HETERODIMER)
+
+    def test_classify_top_layer_motif_distinguishes_dual_single_atom_alloy(self):
+        atoms = fcc111("Pt", size=(3, 3, 3), vacuum=10.0)[::-1]
+        atoms = swap_atoms(atoms, 0, "Cu")
+        atoms = swap_atoms(atoms, 4, "Au")
+
+        motif = classify_top_layer_motif(atoms, atoms_per_layer=9)
+
+        self.assertEqual(motif, TOP_LAYER_MOTIF_DUAL_SINGLE_ATOM_ALLOY)
 
 
 if __name__ == "__main__":

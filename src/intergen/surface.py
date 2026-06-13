@@ -21,6 +21,8 @@ from intergen.metadata import (
     SURFACE_TYPE_KEY,
     SWAP_ELEMENTS_KEY,
     SWAP_INDICES_KEY,
+    TOP_LAYER_MOTIF_KEY,
+    TOP_LAYER_MOTIF_PURE,
     validate_structure_metadata_keys,
 )
 
@@ -65,6 +67,19 @@ def build_slab_metadata(
     return metadata
 
 
+def get_metadata_atoms_per_layer(atoms: Atoms) -> int:
+    x_size, y_size, _ = atoms.info[SUPERCELL_SIZE_KEY]
+    return x_size * y_size
+
+
+def assign_top_layer_motif_metadata(atoms: Atoms) -> Atoms:
+    atoms.info[TOP_LAYER_MOTIF_KEY] = classify_top_layer_motif(
+        atoms=atoms,
+        atoms_per_layer=get_metadata_atoms_per_layer(atoms),
+    )
+    return atoms
+
+
 def assign_slab_metadata(
     atoms: Atoms,
     *,
@@ -74,17 +89,20 @@ def assign_slab_metadata(
     supercell_size: Sequence[int],
     swap_indices: Sequence[int] = (),
     swap_elements: Sequence[str] = (),
+    top_layer_motif: str | None = None,
 ) -> Atoms:
-    atoms.info.update(
-        build_slab_metadata(
-            slab_id=slab_id,
-            host_element=host_element,
-            surface_type=surface_type,
-            supercell_size=supercell_size,
-            swap_indices=swap_indices,
-            swap_elements=swap_elements,
-        )
+    metadata = build_slab_metadata(
+        slab_id=slab_id,
+        host_element=host_element,
+        surface_type=surface_type,
+        supercell_size=supercell_size,
+        swap_indices=swap_indices,
+        swap_elements=swap_elements,
     )
+    if top_layer_motif is not None:
+        metadata[TOP_LAYER_MOTIF_KEY] = top_layer_motif
+        validate_structure_metadata_keys(metadata)
+    atoms.info.update(metadata)
     return atoms
 
 
@@ -130,6 +148,7 @@ def build_pure_surfaces(
             host_element=host,
             surface_type=SURFACE_TYPE_FCC111,
             supercell_size=cfg.structure.size,
+            top_layer_motif=TOP_LAYER_MOTIF_PURE,
         )
         pure_atoms.append(slab)
 
@@ -148,6 +167,7 @@ def build_pure_surfaces(
             host_element=host,
             surface_type=SURFACE_TYPE_HCP0001,
             supercell_size=cfg.structure.size,
+            top_layer_motif=TOP_LAYER_MOTIF_PURE,
         )
         pure_atoms.append(slab)
     return pure_atoms
@@ -261,6 +281,7 @@ def enumerate_unique_swaps(
                     swap_element=element,
                 )
             )
+            assign_top_layer_motif_metadata(new_atoms)
             atoms_list.append(new_atoms)
     return atoms_list
 
