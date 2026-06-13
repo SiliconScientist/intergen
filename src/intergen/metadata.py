@@ -76,6 +76,7 @@ ADSORPTION_SITE_LABELS: Final[tuple[str, ...]] = (
 
 _ADSORPTION_SITE_LABEL_ALIASES: Final[Mapping[str, str]] = {
     "top": ADSORPTION_SITE_TOP,
+    "ontop": ADSORPTION_SITE_TOP,
     "bridge": ADSORPTION_SITE_BRIDGE,
     "hollow": ADSORPTION_SITE_HOLLOW,
     "fcc hollow": ADSORPTION_SITE_FCC_HOLLOW,
