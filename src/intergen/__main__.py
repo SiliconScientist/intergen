@@ -1,4 +1,5 @@
 from pathlib import Path
+from itertools import count
 
 from ase.db import connect
 from ase.visualize import view
@@ -98,7 +99,8 @@ def main():
     surface_generator = iterative_swaps
     index_selector_fn = naive_surface_index_selector
     swap_indices = index_selector_fn(cfg=cfg)
-    pure_atoms = build_pure_surfaces(cfg=cfg)
+    slab_id_source = count(1)
+    pure_atoms = build_pure_surfaces(cfg=cfg, slab_id_source=slab_id_source)
     atoms_list = get_initial_atoms_list(
         pure_atoms=pure_atoms,
         only_last_generation=cfg.generation.only_last_generation,
@@ -118,6 +120,7 @@ def main():
                 swap_plan=swap_plan,
                 indices=swap_indices,
                 atoms_per_layer=atoms_per_layer,
+                slab_id_source=slab_id_source,
                 matcher=matcher,
                 only_last_generation=cfg.generation.only_last_generation,
             )

@@ -1,16 +1,28 @@
+from collections.abc import Iterator, Sequence
+from itertools import combinations, count
+from typing import Literal
+
 import numpy as np
 import pandas as pd
-from ase.db import connect
 from ase.atoms import Atoms
 from ase.build import fcc111, hcp0001
-from itertools import combinations
-from typing import Literal
 from pymatgen.core import Structure
+from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-from pymatgen.analysis.structure_matcher import StructureMatcher
 
 from intergen.config import Config
+from intergen.metadata import (
+    HOST_ELEMENT_KEY,
+    SLAB_ID_KEY,
+    SUPERCELL_SIZE_KEY,
+    SURFACE_TYPE_FCC111,
+    SURFACE_TYPE_HCP0001,
+    SURFACE_TYPE_KEY,
+    SWAP_ELEMENTS_KEY,
+    SWAP_INDICES_KEY,
+    validate_structure_metadata_keys,
+)
 
 
 def get_atoms_per_layer(cfg: Config) -> int:
@@ -29,7 +41,76 @@ def naive_surface_index_selector(cfg):
     return list(range(num_atoms))
 
 
-def build_pure_surfaces(cfg: Config) -> list[Atoms]:
+def make_slab_id(slab_id_source: Iterator[int]) -> str:
+    return f"slab-{next(slab_id_source):06d}"
+
+
+def build_slab_metadata(
+    slab_id: str,
+    host_element: str,
+    surface_type: str,
+    supercell_size: Sequence[int],
+    swap_indices: Sequence[int] = (),
+    swap_elements: Sequence[str] = (),
+) -> dict[str, object]:
+    metadata = {
+        SLAB_ID_KEY: slab_id,
+        HOST_ELEMENT_KEY: host_element,
+        SURFACE_TYPE_KEY: surface_type,
+        SUPERCELL_SIZE_KEY: tuple(int(value) for value in supercell_size),
+        SWAP_INDICES_KEY: [int(index) for index in swap_indices],
+        SWAP_ELEMENTS_KEY: [str(element) for element in swap_elements],
+    }
+    validate_structure_metadata_keys(metadata)
+    return metadata
+
+
+def assign_slab_metadata(
+    atoms: Atoms,
+    *,
+    slab_id: str,
+    host_element: str,
+    surface_type: str,
+    supercell_size: Sequence[int],
+    swap_indices: Sequence[int] = (),
+    swap_elements: Sequence[str] = (),
+) -> Atoms:
+    atoms.info.update(
+        build_slab_metadata(
+            slab_id=slab_id,
+            host_element=host_element,
+            surface_type=surface_type,
+            supercell_size=supercell_size,
+            swap_indices=swap_indices,
+            swap_elements=swap_elements,
+        )
+    )
+    return atoms
+
+
+def derive_swapped_slab_metadata(
+    parent_atoms: Atoms,
+    *,
+    slab_id: str,
+    swap_index: int,
+    swap_element: str,
+) -> dict[str, object]:
+    return build_slab_metadata(
+        slab_id=slab_id,
+        host_element=parent_atoms.info[HOST_ELEMENT_KEY],
+        surface_type=parent_atoms.info[SURFACE_TYPE_KEY],
+        supercell_size=parent_atoms.info[SUPERCELL_SIZE_KEY],
+        swap_indices=[*parent_atoms.info[SWAP_INDICES_KEY], int(swap_index)],
+        swap_elements=[*parent_atoms.info[SWAP_ELEMENTS_KEY], str(swap_element)],
+    )
+
+
+def build_pure_surfaces(
+    cfg: Config,
+    slab_id_source: Iterator[int] | None = None,
+) -> list[Atoms]:
+    if slab_id_source is None:
+        slab_id_source = count(1)
     pure_atoms = []
     lattice_constant_df = pd.read_csv(
         "assets/pure_metal_lattice_constants.csv",
@@ -43,6 +124,13 @@ def build_pure_surfaces(cfg: Config) -> list[Atoms]:
             vacuum=cfg.structure.vacuum,
             a=lattice_constant_df.loc[host, "FCC_LatticeConstant_PBE+TS_1"],
         )[::-1]
+        assign_slab_metadata(
+            slab,
+            slab_id=make_slab_id(slab_id_source),
+            host_element=host,
+            surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=cfg.structure.size,
+        )
         pure_atoms.append(slab)
 
     for host in cfg.structure.hcp_list:
@@ -54,6 +142,13 @@ def build_pure_surfaces(cfg: Config) -> list[Atoms]:
             c=lattice_constant_df.loc[host, "HCP_LatticeConstant_PW91_1"]
             * lattice_constant_df.loc[host, "HCP_c_over_a_PW91_1"],
         )[::-1]
+        assign_slab_metadata(
+            slab,
+            slab_id=make_slab_id(slab_id_source),
+            host_element=host,
+            surface_type=SURFACE_TYPE_HCP0001,
+            supercell_size=cfg.structure.size,
+        )
         pure_atoms.append(slab)
     return pure_atoms
 
@@ -132,6 +227,7 @@ def enumerate_unique_swaps(
     host_element: str,
     indices: list[int],
     element: str,
+    slab_id_source: Iterator[int] | None = None,
 ) -> list[Atoms]:
     """
     Generate a list of structures with the given element substituted at each
@@ -145,6 +241,8 @@ def enumerate_unique_swaps(
     Returns:
         list[Atoms]: List of new structures with one substitution each.
     """
+    if slab_id_source is None:
+        slab_id_source = count(1)
     unique_site_indices = id_unique_sites(
         atoms=atoms,
         indices=indices,
@@ -155,6 +253,14 @@ def enumerate_unique_swaps(
     for index in unique_site_indices:
         if symbols[index] == host_element:
             new_atoms = swap_atoms(atoms=atoms, index=index, element=element)
+            new_atoms.info.update(
+                derive_swapped_slab_metadata(
+                    atoms,
+                    slab_id=make_slab_id(slab_id_source),
+                    swap_index=index,
+                    swap_element=element,
+                )
+            )
             atoms_list.append(new_atoms)
     return atoms_list
 
@@ -204,13 +310,12 @@ def get_unique_atoms(
         for structure in structures
     ]
     unique_indices = find_unique_structures(structures=substructures, matcher=matcher)
-    unique_structures = [structures[i] for i in unique_indices]
-    unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
-    return unique_atoms
+    return [atoms_list[i].copy() for i in unique_indices]
 
 
 def get_element_swaps(
     atoms: Atoms,
+    host_element: str,
     indices: list[int],
     element: str,
     atoms_per_layer: int,
@@ -219,18 +324,17 @@ def get_element_swaps(
 ) -> list[Atoms]:
     """Returns symmetry-unique structures from a single round of element substitutions."""
     swapped_structs = enumerate_unique_swaps(
-        atoms=atoms, indices=indices, element=element
+        atoms=atoms,
+        host_element=host_element,
+        indices=indices,
+        element=element,
     )
-    structures = prepare_for_pymatgen(swapped_structs)
-    comparison_indices = range(atoms_per_layer)
-    substructures = [
-        get_substructure(structure, indices=comparison_indices)
-        for structure in structures
-    ]
-    unique_indices = find_unique_structures(structures=substructures, matcher=matcher)
-    unique_structures = [structures[i] for i in unique_indices]
-    unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
-    return unique_atoms
+    return get_unique_atoms(
+        atoms_list=swapped_structs,
+        comparison_indices=range(atoms_per_layer),
+        converter=converter,
+        matcher=matcher,
+    )
 
 
 def get_swap_plans(cfg: Config, num_swaps: int, host_element: str) -> list[list[str]]:
@@ -248,9 +352,12 @@ def iterative_swaps(
     swap_plan: list[str],
     indices: list[int],
     atoms_per_layer: int,
+    slab_id_source: Iterator[int] | None = None,
     matcher: StructureMatcher = StructureMatcher(),
     only_last_generation: bool = False,
 ) -> list[Atoms]:
+    if slab_id_source is None:
+        slab_id_source = count(1)
     all_atoms = []
     current_generation = [atoms]
     comparison_indices = range(atoms_per_layer)
@@ -264,6 +371,7 @@ def iterative_swaps(
                     host_element=host_element,
                     indices=indices,
                     element=element,
+                    slab_id_source=slab_id_source,
                 )
             )
         next_generation = get_unique_atoms(
@@ -295,11 +403,11 @@ def mutate_via_swaps(
         atoms_list.append(atoms)
         for element in cfg.generation.swap_elements:
             element_swaps = get_element_swaps(
-                cfg=cfg,
                 atoms=atoms,
+                host_element=atoms.info[HOST_ELEMENT_KEY],
                 indices=swap_indices,
                 element=element,
-                num_swaps=cfg.generation.num_swaps,
+                atoms_per_layer=get_atoms_per_layer(cfg),
                 matcher=matcher,
             )
             for swapped_atoms in element_swaps:
