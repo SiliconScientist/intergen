@@ -13,6 +13,7 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from intergen.adsorbate import (
     AdsorbateGenerationStats,
     build_adsorption_site_template,
+    build_adslab_provenance_metadata,
     add_adsorbates,
     apply_adsorption_sites,
     build_adsorbate_comparison_substructures,
@@ -29,7 +30,20 @@ from intergen.adsorbate import (
     transfer_adsorption_site_template,
 )
 from intergen.config import Config
+from intergen.metadata import (
+    HOST_ELEMENT_KEY,
+    PARENT_SLAB_ID_KEY,
+    SLAB_ID_KEY,
+    SURFACE_TYPE_FCC111,
+    SURFACE_TYPE_KEY,
+    SUPERCELL_SIZE_KEY,
+    SWAP_ELEMENTS_KEY,
+    SWAP_INDICES_KEY,
+    TOP_LAYER_MOTIF_KEY,
+    TOP_LAYER_MOTIF_SINGLE_SWAP,
+)
 from intergen.surface import (
+    assign_slab_metadata,
     classify_top_layer_motif,
     find_unique_structures,
     get_substructure,
@@ -140,6 +154,76 @@ class TestConfig(unittest.TestCase):
         atoms = swap_atoms(atoms, 1, "Au")
 
         self.assertEqual(get_top_layer_host_element(atoms, atoms_per_layer=9), "Pt")
+
+
+class TestAdsorbateMetadata(unittest.TestCase):
+    def test_build_adslab_provenance_metadata_renames_slab_id_to_parent_slab_id(self):
+        slab = fcc111("Pt", size=(2, 2, 3), vacuum=10.0)[::-1]
+        assign_slab_metadata(
+            slab,
+            slab_id="slab-000010",
+            host_element="Pt",
+            surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=(2, 2, 3),
+            swap_indices=[0],
+            swap_elements=["Cu"],
+            top_layer_motif=TOP_LAYER_MOTIF_SINGLE_SWAP,
+        )
+
+        metadata = build_adslab_provenance_metadata(slab)
+
+        self.assertNotIn(SLAB_ID_KEY, metadata)
+        self.assertEqual(metadata[PARENT_SLAB_ID_KEY], "slab-000010")
+        self.assertEqual(metadata[HOST_ELEMENT_KEY], "Pt")
+        self.assertEqual(metadata[SURFACE_TYPE_KEY], SURFACE_TYPE_FCC111)
+        self.assertEqual(metadata[SUPERCELL_SIZE_KEY], (2, 2, 3))
+        self.assertEqual(metadata[SWAP_INDICES_KEY], [0])
+        self.assertEqual(metadata[SWAP_ELEMENTS_KEY], ["Cu"])
+        self.assertEqual(metadata[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_SINGLE_SWAP)
+
+    def test_get_adsorbate_structures_preserves_parent_slab_provenance(self):
+        cfg = make_config(surface_layers_for_matching=2)
+        slab = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
+        slab = swap_atoms(slab, 0, "Cu")
+        assign_slab_metadata(
+            slab,
+            slab_id="slab-000020",
+            host_element="Pt",
+            surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=(3, 3, 4),
+            swap_indices=[0],
+            swap_elements=["Cu"],
+            top_layer_motif=TOP_LAYER_MOTIF_SINGLE_SWAP,
+        )
+        slab.set_pbc(True)
+        adsorbate = Molecule(
+            ["N"],
+            [[0.0, 0.0, 0.0]],
+            site_properties={"tags": [0]},
+        )
+        matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
+        slab_structure = AseAtomsAdaptor().get_structure(slab)
+
+        with patch(
+            "intergen.adsorbate.generate_adsorbate_structures_for_slab",
+            return_value=[slab_structure],
+        ):
+            adslabs = get_adsorbate_structures(
+                cfg=cfg,
+                atoms_list=[slab],
+                adsorbate=adsorbate,
+                matcher=matcher,
+            )
+
+        self.assertEqual(len(adslabs), 1)
+        self.assertNotIn(SLAB_ID_KEY, adslabs[0].info)
+        self.assertEqual(adslabs[0].info[PARENT_SLAB_ID_KEY], "slab-000020")
+        self.assertEqual(adslabs[0].info[HOST_ELEMENT_KEY], "Pt")
+        self.assertEqual(adslabs[0].info[SURFACE_TYPE_KEY], SURFACE_TYPE_FCC111)
+        self.assertEqual(adslabs[0].info[SUPERCELL_SIZE_KEY], (3, 3, 4))
+        self.assertEqual(adslabs[0].info[SWAP_INDICES_KEY], [0])
+        self.assertEqual(adslabs[0].info[SWAP_ELEMENTS_KEY], ["Cu"])
+        self.assertEqual(adslabs[0].info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_SINGLE_SWAP)
 
 
 class TestTemplateSiteMatching(unittest.TestCase):

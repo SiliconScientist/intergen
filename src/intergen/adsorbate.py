@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from copy import deepcopy
 from time import perf_counter
 
 import numpy as np
@@ -8,6 +9,11 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from intergen.config import Config
+from intergen.metadata import (
+    PARENT_SLAB_ID_KEY,
+    SLAB_ID_KEY,
+    SLAB_PROVENANCE_FIELDS,
+)
 from intergen.surface import (
     classify_top_layer_motif,
     prepare_for_pymatgen,
@@ -90,6 +96,22 @@ class AdsorptionSiteTemplate:
 def get_top_layer_host_element(atoms: Atoms, atoms_per_layer: int) -> str:
     top_layer_symbols = atoms.get_chemical_symbols()[:atoms_per_layer]
     return max(set(top_layer_symbols), key=top_layer_symbols.count)
+
+
+def build_adslab_provenance_metadata(parent_slab: Atoms) -> dict[str, object]:
+    provenance = {
+        key: deepcopy(parent_slab.info[key])
+        for key in SLAB_PROVENANCE_FIELDS
+        if key in parent_slab.info
+    }
+    if SLAB_ID_KEY in provenance:
+        provenance[PARENT_SLAB_ID_KEY] = provenance.pop(SLAB_ID_KEY)
+    return provenance
+
+
+def attach_parent_slab_metadata(adslab: Atoms, parent_slab: Atoms) -> Atoms:
+    adslab.info.update(build_adslab_provenance_metadata(parent_slab))
+    return adslab
 
 
 def supports_two_swap_motif_template_reuse(cfg: Config, motif: str) -> bool:
@@ -578,7 +600,13 @@ def get_adsorbate_structures(
             stats=stats,
         )
         ase_conversion_start = perf_counter()
-        unique_atoms = [converter.get_atoms(struct) for struct in unique_structures]
+        unique_atoms = [
+            attach_parent_slab_metadata(
+                adslab=converter.get_atoms(struct),
+                parent_slab=atoms,
+            )
+            for struct in unique_structures
+        ]
         stats.ase_conversion_seconds += perf_counter() - ase_conversion_start
         slab_stats = build_adsorbate_slab_stats(
             slab_index=slab_index,

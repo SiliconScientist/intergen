@@ -30,6 +30,16 @@ STRUCTURE_METADATA_FIELDS: Final[tuple[str, ...]] = (
     ADSORBATE_KEY,
 )
 
+SLAB_PROVENANCE_FIELDS: Final[tuple[str, ...]] = (
+    SLAB_ID_KEY,
+    HOST_ELEMENT_KEY,
+    SURFACE_TYPE_KEY,
+    SUPERCELL_SIZE_KEY,
+    SWAP_INDICES_KEY,
+    SWAP_ELEMENTS_KEY,
+    TOP_LAYER_MOTIF_KEY,
+)
+
 SURFACE_TYPE_FCC111: Final[str] = "fcc111"
 SURFACE_TYPE_HCP0001: Final[str] = "hcp0001"
 SURFACE_TYPES: Final[tuple[str, ...]] = (
