@@ -18,6 +18,12 @@ from intergen.constraints import (
     constrain_adsorbate_bottom_layers,
     has_adsorbate_bottom_layer_constraints,
 )
+from intergen.metadata import (
+    DB_METADATA_DATA_KEY,
+    deserialize_structure_metadata_from_db,
+    get_structure_metadata,
+    serialize_structure_metadata_for_db,
+)
 
 
 def warn_if_constraints_disabled(cfg) -> None:
@@ -69,12 +75,27 @@ def write_atoms_database(path: Path, atoms_list) -> None:
         path.unlink()
     config_db = connect(path)
     for atoms in atoms_list:
-        config_db.write(atoms)
+        structure_metadata = get_structure_metadata(atoms.info)
+        config_db.write(
+            atoms,
+            key_value_pairs=serialize_structure_metadata_for_db(structure_metadata),
+            data={DB_METADATA_DATA_KEY: structure_metadata},
+        )
 
 
 def get_database_atoms_list(path: Path):
     config_db = connect(path)
-    return [row.toatoms() for row in config_db.select()]
+    atoms_list = []
+    for row in config_db.select():
+        atoms = row.toatoms()
+        atoms.info.update(
+            deserialize_structure_metadata_from_db(
+                key_value_pairs=row.key_value_pairs,
+                data=row.data,
+            )
+        )
+        atoms_list.append(atoms)
+    return atoms_list
 
 
 def main():

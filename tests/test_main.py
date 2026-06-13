@@ -1,11 +1,33 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from types import SimpleNamespace
 
 from ase import Atoms
 from ase.constraints import FixAtoms
+from ase.db import connect
 
-from intergen.__main__ import apply_database_constraints, get_initial_atoms_list
+from intergen.__main__ import (
+    apply_database_constraints,
+    get_database_atoms_list,
+    get_initial_atoms_list,
+    write_atoms_database,
+)
+from intergen.metadata import (
+    ADSLAB_ID_KEY,
+    ADSORBATE_KEY,
+    DB_METADATA_DATA_KEY,
+    HOST_ELEMENT_KEY,
+    INITIAL_SITE_COORDINATE_KEY,
+    INITIAL_SITE_LABEL_KEY,
+    PARENT_SLAB_ID_KEY,
+    SUPERCELL_SIZE_KEY,
+    SURFACE_TYPE_KEY,
+    SWAP_ELEMENTS_KEY,
+    SWAP_INDICES_KEY,
+    TOP_LAYER_MOTIF_KEY,
+)
 
 
 class TestMain(unittest.TestCase):
@@ -78,6 +100,95 @@ class TestMain(unittest.TestCase):
         self.assertEqual(len(constrained.constraints), 1)
         self.assertIsInstance(constrained.constraints[0], FixAtoms)
         self.assertEqual(sorted(constrained.constraints[0].index.tolist()), list(range(8)))
+
+    def test_write_atoms_database_persists_metadata_in_db_row(self):
+        atoms = Atoms(
+            symbols=["Pt", "N"],
+            positions=[(0.0, 0.0, 0.0), (0.0, 0.0, 1.0)],
+            cell=[(5.0, 0.0, 0.0), (0.0, 5.0, 0.0), (0.0, 0.0, 15.0)],
+            pbc=(True, True, True),
+        )
+        atoms.info.update(
+            {
+                ADSLAB_ID_KEY: "adslab-000001",
+                PARENT_SLAB_ID_KEY: "slab-000010",
+                HOST_ELEMENT_KEY: "Pt",
+                SURFACE_TYPE_KEY: "fcc111",
+                SUPERCELL_SIZE_KEY: (3, 3, 4),
+                SWAP_INDICES_KEY: [0, 4],
+                SWAP_ELEMENTS_KEY: ["Cu", "Au"],
+                TOP_LAYER_MOTIF_KEY: "heterodimer",
+                ADSORBATE_KEY: "N",
+                INITIAL_SITE_LABEL_KEY: "fcc_hollow",
+                INITIAL_SITE_COORDINATE_KEY: (1.0, 2.0, 3.0),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "metadata.db"
+            write_atoms_database(db_path, [atoms])
+
+            row = next(connect(db_path).select())
+
+        self.assertEqual(row.adslab_id, "adslab-000001")
+        self.assertEqual(row.parent_slab_id, "slab-000010")
+        self.assertEqual(row.host_element, "Pt")
+        self.assertEqual(row.surface_type, "fcc111")
+        self.assertEqual(row.top_layer_motif, "heterodimer")
+        self.assertEqual(row.adsorbate, "N")
+        self.assertEqual(row.initial_site_label, "fcc_hollow")
+        self.assertEqual(row.key_value_pairs[SUPERCELL_SIZE_KEY], "[3, 3, 4]")
+        self.assertEqual(row.key_value_pairs[SWAP_INDICES_KEY], "[0, 4]")
+        self.assertEqual(row.key_value_pairs[SWAP_ELEMENTS_KEY], '["Cu", "Au"]')
+        self.assertEqual(row.key_value_pairs[INITIAL_SITE_COORDINATE_KEY], "[1.0, 2.0, 3.0]")
+        self.assertEqual(
+            tuple(row.data[DB_METADATA_DATA_KEY][INITIAL_SITE_COORDINATE_KEY]),
+            (1.0, 2.0, 3.0),
+        )
+
+    def test_get_database_atoms_list_restores_metadata_round_trip(self):
+        atoms = Atoms(
+            symbols=["Pt", "N"],
+            positions=[(0.0, 0.0, 0.0), (0.0, 0.0, 1.0)],
+            cell=[(5.0, 0.0, 0.0), (0.0, 5.0, 0.0), (0.0, 0.0, 15.0)],
+            pbc=(True, True, True),
+        )
+        atoms.info.update(
+            {
+                ADSLAB_ID_KEY: "adslab-000001",
+                PARENT_SLAB_ID_KEY: "slab-000010",
+                HOST_ELEMENT_KEY: "Pt",
+                SURFACE_TYPE_KEY: "fcc111",
+                SUPERCELL_SIZE_KEY: (3, 3, 4),
+                SWAP_INDICES_KEY: [0, 4],
+                SWAP_ELEMENTS_KEY: ["Cu", "Au"],
+                TOP_LAYER_MOTIF_KEY: "heterodimer",
+                ADSORBATE_KEY: "N",
+                INITIAL_SITE_LABEL_KEY: "fcc_hollow",
+                INITIAL_SITE_COORDINATE_KEY: (1.0, 2.0, 3.0),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "metadata.db"
+            write_atoms_database(db_path, [atoms])
+            restored_atoms = get_database_atoms_list(db_path)
+
+        self.assertEqual(len(restored_atoms), 1)
+        self.assertEqual(restored_atoms[0].info[ADSLAB_ID_KEY], "adslab-000001")
+        self.assertEqual(restored_atoms[0].info[PARENT_SLAB_ID_KEY], "slab-000010")
+        self.assertEqual(restored_atoms[0].info[HOST_ELEMENT_KEY], "Pt")
+        self.assertEqual(restored_atoms[0].info[SURFACE_TYPE_KEY], "fcc111")
+        self.assertEqual(restored_atoms[0].info[SUPERCELL_SIZE_KEY], (3, 3, 4))
+        self.assertEqual(restored_atoms[0].info[SWAP_INDICES_KEY], [0, 4])
+        self.assertEqual(restored_atoms[0].info[SWAP_ELEMENTS_KEY], ["Cu", "Au"])
+        self.assertEqual(restored_atoms[0].info[TOP_LAYER_MOTIF_KEY], "heterodimer")
+        self.assertEqual(restored_atoms[0].info[ADSORBATE_KEY], "N")
+        self.assertEqual(restored_atoms[0].info[INITIAL_SITE_LABEL_KEY], "fcc_hollow")
+        self.assertEqual(
+            restored_atoms[0].info[INITIAL_SITE_COORDINATE_KEY],
+            (1.0, 2.0, 3.0),
+        )
 
 
 if __name__ == "__main__":

@@ -11,8 +11,10 @@ from pymatgen.core import Lattice, Molecule
 from pymatgen.io.ase import AseAtomsAdaptor
 
 from intergen.adsorbate import (
+    AdsorbedStructureRecord,
     AdsorbateGenerationStats,
     build_adsorption_site_template,
+    build_adsorbate_metadata,
     build_adslab_provenance_metadata,
     add_adsorbates,
     apply_adsorption_sites,
@@ -20,6 +22,7 @@ from intergen.adsorbate import (
     deduplicate_adsorption_structures,
     discover_adsorption_sites,
     generate_adsorbate_structures_for_slab,
+    generate_adsorbate_structure_records_for_slab,
     get_site_coordinate_distance,
     get_adsorbate_comparison_indices,
     get_adsorbate_structures,
@@ -31,7 +34,11 @@ from intergen.adsorbate import (
 )
 from intergen.config import Config
 from intergen.metadata import (
+    ADSLAB_ID_KEY,
+    ADSORBATE_KEY,
     HOST_ELEMENT_KEY,
+    INITIAL_SITE_COORDINATE_KEY,
+    INITIAL_SITE_LABEL_KEY,
     PARENT_SLAB_ID_KEY,
     SLAB_ID_KEY,
     SURFACE_TYPE_FCC111,
@@ -157,6 +164,25 @@ class TestConfig(unittest.TestCase):
 
 
 class TestAdsorbateMetadata(unittest.TestCase):
+    def test_build_adsorbate_metadata_normalizes_site_fields(self):
+        adsorbate = Molecule(
+            ["O", "H"],
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.9]],
+            site_properties={"tags": [0, 0]},
+        )
+
+        metadata = build_adsorbate_metadata(
+            adsorbate=adsorbate,
+            site_label="fcc hollow",
+            site_coordinate=np.array([1, 2.5, 3]),
+            adslab_id="adslab-000001",
+        )
+
+        self.assertEqual(metadata[ADSLAB_ID_KEY], "adslab-000001")
+        self.assertEqual(metadata[ADSORBATE_KEY], "OH")
+        self.assertEqual(metadata[INITIAL_SITE_LABEL_KEY], "fcc_hollow")
+        self.assertEqual(metadata[INITIAL_SITE_COORDINATE_KEY], (1.0, 2.5, 3.0))
+
     def test_build_adslab_provenance_metadata_renames_slab_id_to_parent_slab_id(self):
         slab = fcc111("Pt", size=(2, 2, 3), vacuum=10.0)[::-1]
         assign_slab_metadata(
@@ -202,11 +228,15 @@ class TestAdsorbateMetadata(unittest.TestCase):
             site_properties={"tags": [0]},
         )
         matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
-        slab_structure = AseAtomsAdaptor().get_structure(slab)
-
         with patch(
-            "intergen.adsorbate.generate_adsorbate_structures_for_slab",
-            return_value=[slab_structure],
+            "intergen.adsorbate.generate_adsorbate_structure_records_for_slab",
+            return_value=[
+                AdsorbedStructureRecord(
+                    structure=AseAtomsAdaptor().get_structure(slab),
+                    site_label="hollow",
+                    site_coordinate=(1.0, 2.0, 3.0),
+                )
+            ],
         ):
             adslabs = get_adsorbate_structures(
                 cfg=cfg,
@@ -217,13 +247,102 @@ class TestAdsorbateMetadata(unittest.TestCase):
 
         self.assertEqual(len(adslabs), 1)
         self.assertNotIn(SLAB_ID_KEY, adslabs[0].info)
+        self.assertEqual(adslabs[0].info[ADSLAB_ID_KEY], "adslab-000001")
         self.assertEqual(adslabs[0].info[PARENT_SLAB_ID_KEY], "slab-000020")
+        self.assertEqual(adslabs[0].info[ADSORBATE_KEY], "N")
+        self.assertEqual(adslabs[0].info[INITIAL_SITE_LABEL_KEY], "hollow")
+        self.assertEqual(adslabs[0].info[INITIAL_SITE_COORDINATE_KEY], (1.0, 2.0, 3.0))
         self.assertEqual(adslabs[0].info[HOST_ELEMENT_KEY], "Pt")
         self.assertEqual(adslabs[0].info[SURFACE_TYPE_KEY], SURFACE_TYPE_FCC111)
         self.assertEqual(adslabs[0].info[SUPERCELL_SIZE_KEY], (3, 3, 4))
         self.assertEqual(adslabs[0].info[SWAP_INDICES_KEY], [0])
         self.assertEqual(adslabs[0].info[SWAP_ELEMENTS_KEY], ["Cu"])
         self.assertEqual(adslabs[0].info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_SINGLE_SWAP)
+
+    def test_generate_adsorbate_structure_records_for_slab_keeps_site_metadata(self):
+        cfg = make_config(surface_layers_for_matching=2)
+        slab_atoms = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
+        slab_structure = AseAtomsAdaptor().get_structure(slab_atoms)
+        adsorbate = Molecule(
+            ["N"],
+            [[0.0, 0.0, 0.0]],
+            site_properties={"tags": [0]},
+        )
+        matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
+
+        with patch(
+            "intergen.adsorbate.discover_adsorption_sites",
+            return_value={"hollow": [np.array([0.1, 0.2, 0.3])]},
+        ):
+            records = generate_adsorbate_structure_records_for_slab(
+                cfg=cfg,
+                atoms=slab_atoms,
+                slab=slab_structure,
+                adsorbate=adsorbate,
+                atoms_per_layer=9,
+                comparison_indices=list(range(19)),
+                matcher=matcher,
+                motif_site_cache={},
+            )
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].site_label, "hollow")
+        self.assertEqual(records[0].site_coordinate, (0.1, 0.2, 0.3))
+
+    def test_get_adsorbate_structures_assigns_unique_adslab_ids_within_run(self):
+        cfg = make_config(surface_layers_for_matching=2)
+        adsorbate = Molecule(
+            ["N"],
+            [[0.0, 0.0, 0.0]],
+            site_properties={"tags": [0]},
+        )
+        matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
+
+        slab_a = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
+        assign_slab_metadata(
+            slab_a,
+            slab_id="slab-000001",
+            host_element="Pt",
+            surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=(3, 3, 4),
+            top_layer_motif="pure",
+        )
+        slab_b = fcc111("Pt", size=(3, 3, 4), vacuum=10.0)[::-1]
+        assign_slab_metadata(
+            slab_b,
+            slab_id="slab-000002",
+            host_element="Pt",
+            surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=(3, 3, 4),
+            top_layer_motif="pure",
+        )
+
+        record_a = AdsorbedStructureRecord(
+            structure=AseAtomsAdaptor().get_structure(slab_a),
+            site_label="top",
+            site_coordinate=(0.0, 0.0, 1.0),
+        )
+        record_b = AdsorbedStructureRecord(
+            structure=AseAtomsAdaptor().get_structure(slab_b),
+            site_label="bridge",
+            site_coordinate=(1.0, 0.0, 1.0),
+        )
+
+        with patch(
+            "intergen.adsorbate.generate_adsorbate_structure_records_for_slab",
+            side_effect=[[record_a], [record_b]],
+        ):
+            adslabs = get_adsorbate_structures(
+                cfg=cfg,
+                atoms_list=[slab_a, slab_b],
+                adsorbate=adsorbate,
+                matcher=matcher,
+            )
+
+        self.assertEqual(
+            [adslab.info[ADSLAB_ID_KEY] for adslab in adslabs],
+            ["adslab-000001", "adslab-000002"],
+        )
 
 
 class TestTemplateSiteMatching(unittest.TestCase):

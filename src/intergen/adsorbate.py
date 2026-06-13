@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from copy import deepcopy
+from itertools import count
 from time import perf_counter
 
 import numpy as np
@@ -10,9 +11,15 @@ from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from intergen.config import Config
 from intergen.metadata import (
+    ADSLAB_ID_KEY,
+    ADSORBATE_KEY,
+    INITIAL_SITE_COORDINATE_KEY,
+    INITIAL_SITE_LABEL_KEY,
     PARENT_SLAB_ID_KEY,
     SLAB_ID_KEY,
     SLAB_PROVENANCE_FIELDS,
+    normalize_adsorption_site_label,
+    normalize_site_coordinate,
 )
 from intergen.surface import (
     classify_top_layer_motif,
@@ -93,6 +100,13 @@ class AdsorptionSiteTemplate:
     coordinates_by_site: dict[str, list[tuple[float, float, float]]]
 
 
+@dataclass
+class AdsorbedStructureRecord:
+    structure: Structure
+    site_label: str
+    site_coordinate: tuple[float, float, float]
+
+
 def get_top_layer_host_element(atoms: Atoms, atoms_per_layer: int) -> str:
     top_layer_symbols = atoms.get_chemical_symbols()[:atoms_per_layer]
     return max(set(top_layer_symbols), key=top_layer_symbols.count)
@@ -110,7 +124,46 @@ def build_adslab_provenance_metadata(parent_slab: Atoms) -> dict[str, object]:
 
 
 def attach_parent_slab_metadata(adslab: Atoms, parent_slab: Atoms) -> Atoms:
+    adslab.info.pop(SLAB_ID_KEY, None)
     adslab.info.update(build_adslab_provenance_metadata(parent_slab))
+    return adslab
+
+
+def make_adslab_id(adslab_id_source) -> str:
+    return f"adslab-{next(adslab_id_source):06d}"
+
+
+def build_adsorbate_metadata(
+    adsorbate: Molecule,
+    site_label: str,
+    site_coordinate: np.ndarray | tuple[float, float, float],
+    adslab_id: str | None = None,
+) -> dict[str, object]:
+    metadata = {
+        ADSORBATE_KEY: "".join(str(site.specie) for site in adsorbate),
+        INITIAL_SITE_LABEL_KEY: normalize_adsorption_site_label(site_label),
+        INITIAL_SITE_COORDINATE_KEY: normalize_site_coordinate(site_coordinate),
+    }
+    if adslab_id is not None:
+        metadata[ADSLAB_ID_KEY] = adslab_id
+    return metadata
+
+
+def attach_adsorbate_metadata(
+    adslab: Atoms,
+    adsorbate: Molecule,
+    site_label: str,
+    site_coordinate: np.ndarray | tuple[float, float, float],
+    adslab_id: str,
+) -> Atoms:
+    adslab.info.update(
+        build_adsorbate_metadata(
+            adsorbate=adsorbate,
+            site_label=site_label,
+            site_coordinate=site_coordinate,
+            adslab_id=adslab_id,
+        )
+    )
     return adslab
 
 
@@ -151,21 +204,44 @@ def discover_adsorption_sites(
     return site_coordinates
 
 
+def apply_adsorption_site_records(
+    cfg: Config,
+    structure,
+    adsorbate: Molecule,
+    site_coordinates: dict[str, list],
+) -> list[AdsorbedStructureRecord]:
+    site_finder = AdsorbateSiteFinder(slab=structure)
+    structure_records = []
+    for site in cfg.adsorbate.sites:
+        for ads_coords in site_coordinates[site]:
+            adsorbed_structure = site_finder.add_adsorbate(
+                molecule=adsorbate, ads_coord=ads_coords
+            )
+            structure_records.append(
+                AdsorbedStructureRecord(
+                    structure=adsorbed_structure,
+                    site_label=normalize_adsorption_site_label(site),
+                    site_coordinate=normalize_site_coordinate(ads_coords),
+                )
+            )
+    return structure_records
+
+
 def apply_adsorption_sites(
     cfg: Config,
     structure,
     adsorbate: Molecule,
     site_coordinates: dict[str, list],
 ) -> list[Structure]:
-    site_finder = AdsorbateSiteFinder(slab=structure)
-    structures = []
-    for site in cfg.adsorbate.sites:
-        for ads_coords in site_coordinates[site]:
-            adsorbed_structure = site_finder.add_adsorbate(
-                molecule=adsorbate, ads_coord=ads_coords
-            )
-            structures.append(adsorbed_structure)
-    return structures
+    return [
+        record.structure
+        for record in apply_adsorption_site_records(
+            cfg=cfg,
+            structure=structure,
+            adsorbate=adsorbate,
+            site_coordinates=site_coordinates,
+        )
+    ]
 
 
 def get_top_layer_plane_height(structure: Structure, atoms_per_layer: int) -> float:
@@ -471,7 +547,7 @@ def deduplicate_adsorption_structures(
     return [structures[i] for i in unique_indices]
 
 
-def generate_adsorbate_structures_for_slab(
+def generate_adsorbate_structure_records_for_slab(
     cfg: Config,
     atoms: Atoms,
     slab: Structure,
@@ -481,7 +557,7 @@ def generate_adsorbate_structures_for_slab(
     matcher: StructureMatcher,
     motif_site_cache: dict[tuple[str, str], AdsorptionSiteTemplate],
     stats: AdsorbateGenerationStats | None = None,
-) -> list[Structure]:
+) -> list[AdsorbedStructureRecord]:
     can_reuse, cache_key = get_adsorption_template_cache_details(
         cfg=cfg,
         atoms=atoms,
@@ -506,7 +582,7 @@ def generate_adsorbate_structures_for_slab(
         if stats is not None:
             stats.site_selection_seconds += perf_counter() - site_selection_start
         placement_start = perf_counter()
-        structures = apply_adsorption_sites(
+        structure_records = apply_adsorption_site_records(
             cfg=cfg,
             structure=slab,
             adsorbate=adsorbate,
@@ -514,10 +590,10 @@ def generate_adsorbate_structures_for_slab(
         )
         if stats is not None:
             stats.adsorbate_placement_seconds += perf_counter() - placement_start
-        return structures
+        return structure_records
 
     placement_start = perf_counter()
-    structures = apply_adsorption_sites(
+    structure_records = apply_adsorption_site_records(
         cfg=cfg,
         structure=slab,
         adsorbate=adsorbate,
@@ -526,7 +602,7 @@ def generate_adsorbate_structures_for_slab(
     if stats is not None:
         stats.adsorbate_placement_seconds += perf_counter() - placement_start
     unique_indices = get_unique_adsorption_structure_indices(
-        structures=structures,
+        structures=[record.structure for record in structure_records],
         comparison_indices=comparison_indices,
         matcher=matcher,
         stats=stats,
@@ -544,7 +620,34 @@ def generate_adsorbate_structures_for_slab(
             site_coordinates=unique_site_coordinates,
             atoms_per_layer=atoms_per_layer,
         )
-    return [structures[i] for i in unique_indices]
+    return [structure_records[i] for i in unique_indices]
+
+
+def generate_adsorbate_structures_for_slab(
+    cfg: Config,
+    atoms: Atoms,
+    slab: Structure,
+    adsorbate: Molecule,
+    atoms_per_layer: int,
+    comparison_indices: list[int],
+    matcher: StructureMatcher,
+    motif_site_cache: dict[tuple[str, str], AdsorptionSiteTemplate],
+    stats: AdsorbateGenerationStats | None = None,
+) -> list[Structure]:
+    return [
+        record.structure
+        for record in generate_adsorbate_structure_records_for_slab(
+            cfg=cfg,
+            atoms=atoms,
+            slab=slab,
+            adsorbate=adsorbate,
+            atoms_per_layer=atoms_per_layer,
+            comparison_indices=comparison_indices,
+            matcher=matcher,
+            motif_site_cache=motif_site_cache,
+            stats=stats,
+        )
+    ]
 
 
 def get_adsorbate_structures(
@@ -570,6 +673,7 @@ def get_adsorbate_structures(
         adsorbate_atoms_for_matching=1,
     )
     motif_site_cache = {}
+    adslab_id_source = count(1)
     atoms_list = []
     for slab_index, (atoms, slab) in enumerate(zip(source_atoms_list, slabs), start=1):
         template_eligible, cache_key = get_adsorption_template_cache_details(
@@ -588,7 +692,7 @@ def get_adsorbate_structures(
             matching_seconds=stats.matching_seconds,
             ase_conversion_seconds=stats.ase_conversion_seconds,
         )
-        unique_structures = generate_adsorbate_structures_for_slab(
+        structure_records = generate_adsorbate_structure_records_for_slab(
             cfg=cfg,
             atoms=atoms,
             slab=slab,
@@ -601,11 +705,17 @@ def get_adsorbate_structures(
         )
         ase_conversion_start = perf_counter()
         unique_atoms = [
-            attach_parent_slab_metadata(
-                adslab=converter.get_atoms(struct),
-                parent_slab=atoms,
+            attach_adsorbate_metadata(
+                adslab=attach_parent_slab_metadata(
+                    adslab=converter.get_atoms(record.structure),
+                    parent_slab=atoms,
+                ),
+                adsorbate=adsorbate,
+                site_label=record.site_label,
+                site_coordinate=record.site_coordinate,
+                adslab_id=make_adslab_id(adslab_id_source),
             )
-            for struct in unique_structures
+            for record in structure_records
         ]
         stats.ase_conversion_seconds += perf_counter() - ase_conversion_start
         slab_stats = build_adsorbate_slab_stats(
@@ -613,7 +723,7 @@ def get_adsorbate_structures(
             cache_key=cache_key,
             template_eligible=template_eligible,
             template_cache_hit=template_cache_hit,
-            structures_emitted=len(unique_structures),
+            structures_emitted=len(structure_records),
             stats_before=stats_before,
             stats_after=stats,
         )
