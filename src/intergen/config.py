@@ -1,15 +1,18 @@
 from pathlib import Path
-from typing import Any, Literal, Union, Optional
 
 from pydantic import BaseModel
 from tomllib import load
 
 
-class StructureConfig(BaseModel):
-    bcc_list: list[str]
-    hcp_list: list[str]
-    fcc_list: list[str]
+class SurfaceFamilyConfig(BaseModel):
+    elements: list[str]
     size: tuple[int, int, int]
+
+
+class StructureConfig(BaseModel):
+    bcc: SurfaceFamilyConfig
+    hcp: SurfaceFamilyConfig
+    fcc: SurfaceFamilyConfig
     vacuum: float
 
 

@@ -1,9 +1,17 @@
 [structure]
-bcc_list = []
-hcp_list = []
-fcc_list = ["Pt"]
-size = [3, 3, 4]
 vacuum = 10.0
+
+[structure.fcc]
+elements = ["Pt"]
+size = [3, 3, 4]
+
+[structure.hcp]
+elements = []
+size = [3, 3, 4]
+
+[structure.bcc]
+elements = []
+size = [3, 3, 4]
 
 [generation]
 layers_to_swap = 1

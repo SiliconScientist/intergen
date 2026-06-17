@@ -28,10 +28,14 @@ from intergen.metadata import (
 )
 
 
-def get_atoms_per_layer(cfg: Config) -> int:
-    x, y, _ = cfg.structure.size
+def get_atoms_per_layer_from_size(size: Sequence[int]) -> int:
+    x, y, _ = size
     atoms_per_layer = x * y
     return atoms_per_layer
+
+
+def get_atoms_per_layer(cfg: Config) -> int:
+    return get_atoms_per_layer_from_size(cfg.structure.fcc.size)
 
 
 def naive_surface_index_selector(cfg):
@@ -39,7 +43,7 @@ def naive_surface_index_selector(cfg):
     Assumes that atom indices are ordered from top to bottom in the structure,
     and selects atoms from the top layers specified by cfg.generation.layers_to_swap.
     """
-    atoms_per_layer = get_atoms_per_layer(cfg)
+    atoms_per_layer = get_atoms_per_layer_from_size(cfg.structure.fcc.size)
     num_atoms = atoms_per_layer * cfg.generation.layers_to_swap
     return list(range(num_atoms))
 
@@ -136,10 +140,10 @@ def build_pure_surfaces(
         index_col=0,
         skiprows=1,
     )
-    for host in cfg.structure.fcc_list:
+    for host in cfg.structure.fcc.elements:
         slab = fcc111(
             host,
-            size=cfg.structure.size,
+            size=cfg.structure.fcc.size,
             vacuum=cfg.structure.vacuum,
             a=lattice_constant_df.loc[host, "FCC_LatticeConstant_PBE+TS_1"],
         )[::-1]
@@ -148,15 +152,15 @@ def build_pure_surfaces(
             slab_id=make_slab_id(slab_id_source),
             host_element=host,
             surface_type=SURFACE_TYPE_FCC111,
-            supercell_size=cfg.structure.size,
+            supercell_size=cfg.structure.fcc.size,
             top_layer_motif=TOP_LAYER_MOTIF_PURE,
         )
         pure_atoms.append(slab)
 
-    for host in cfg.structure.bcc_list:
+    for host in cfg.structure.bcc.elements:
         slab = bcc111(
             host,
-            size=cfg.structure.size,
+            size=cfg.structure.bcc.size,
             vacuum=cfg.structure.vacuum,
             a=lattice_constant_df.loc[host, "BCC_LatticeConstant_PBE+TS_1"],
         )[::-1]
@@ -165,15 +169,15 @@ def build_pure_surfaces(
             slab_id=make_slab_id(slab_id_source),
             host_element=host,
             surface_type=SURFACE_TYPE_BCC111,
-            supercell_size=cfg.structure.size,
+            supercell_size=cfg.structure.bcc.size,
             top_layer_motif=TOP_LAYER_MOTIF_PURE,
         )
         pure_atoms.append(slab)
 
-    for host in cfg.structure.hcp_list:
+    for host in cfg.structure.hcp.elements:
         slab = hcp0001(
             host,
-            size=cfg.structure.size,
+            size=cfg.structure.hcp.size,
             vacuum=cfg.structure.vacuum,
             a=lattice_constant_df.loc[host, "HCP_LatticeConstant_PW91_1"],
             c=lattice_constant_df.loc[host, "HCP_LatticeConstant_PW91_1"]
@@ -184,7 +188,7 @@ def build_pure_surfaces(
             slab_id=make_slab_id(slab_id_source),
             host_element=host,
             surface_type=SURFACE_TYPE_HCP0001,
-            supercell_size=cfg.structure.size,
+            supercell_size=cfg.structure.hcp.size,
             top_layer_motif=TOP_LAYER_MOTIF_PURE,
         )
         pure_atoms.append(slab)
@@ -446,7 +450,7 @@ def mutate_via_swaps(
                 host_element=atoms.info[HOST_ELEMENT_KEY],
                 indices=swap_indices,
                 element=element,
-                atoms_per_layer=get_atoms_per_layer(cfg),
+                atoms_per_layer=get_metadata_atoms_per_layer(atoms),
                 matcher=matcher,
             )
             for swapped_atoms in element_swaps:

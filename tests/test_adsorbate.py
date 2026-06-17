@@ -67,10 +67,9 @@ def make_config(
 ):
     return Config(
         structure={
-            "bcc_list": [],
-            "hcp_list": [],
-            "fcc_list": ["Pt"],
-            "size": size,
+            "bcc": {"elements": [], "size": size},
+            "hcp": {"elements": [], "size": size},
+            "fcc": {"elements": ["Pt"], "size": size},
             "vacuum": 10.0,
         },
         generation={
@@ -137,22 +136,22 @@ class TestConfig(unittest.TestCase):
 
         self.assertTrue(
             supports_two_swap_motif_template_reuse(
-                cfg=supported_cfg, motif="heterodimer"
+                cfg=supported_cfg, motif="heterodimer", atoms_per_layer=9
             )
         )
         self.assertFalse(
             supports_two_swap_motif_template_reuse(
-                cfg=wrong_swap_count_cfg, motif="heterodimer"
+                cfg=wrong_swap_count_cfg, motif="heterodimer", atoms_per_layer=9
             )
         )
         self.assertFalse(
             supports_two_swap_motif_template_reuse(
-                cfg=wrong_size_cfg, motif="heterodimer"
+                cfg=wrong_size_cfg, motif="heterodimer", atoms_per_layer=12
             )
         )
         self.assertFalse(
             supports_two_swap_motif_template_reuse(
-                cfg=supported_cfg, motif="single_swap"
+                cfg=supported_cfg, motif="single_swap", atoms_per_layer=9
             )
         )
 

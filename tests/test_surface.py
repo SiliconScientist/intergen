@@ -34,10 +34,9 @@ from intergen.surface import (
 def make_config():
     return Config(
         structure={
-            "bcc_list": ["Fe"],
-            "hcp_list": ["Co"],
-            "fcc_list": ["Cu"],
-            "size": (2, 2, 3),
+            "bcc": {"elements": ["Fe"], "size": (2, 2, 3)},
+            "hcp": {"elements": ["Co"], "size": (2, 2, 3)},
+            "fcc": {"elements": ["Cu"], "size": (2, 2, 3)},
             "vacuum": 10.0,
         },
         generation={

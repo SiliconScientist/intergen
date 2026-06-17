@@ -24,7 +24,7 @@ from intergen.metadata import (
 from intergen.surface import (
     classify_top_layer_motif,
     prepare_for_pymatgen,
-    get_atoms_per_layer,
+    get_metadata_atoms_per_layer,
     find_unique_structures,
     get_substructure,
 )
@@ -167,11 +167,13 @@ def attach_adsorbate_metadata(
     return adslab
 
 
-def supports_two_swap_motif_template_reuse(cfg: Config, motif: str) -> bool:
+def supports_two_swap_motif_template_reuse(
+    cfg: Config, motif: str, atoms_per_layer: int
+) -> bool:
     return (
         cfg.adsorbate.reuse_site_templates_for_two_swap_motifs
         and cfg.generation.num_swaps == 2
-        and cfg.structure.size[:2] == (3, 3)
+        and atoms_per_layer == 9
         and motif in MOTIF_SITE_CACHEABLE
     )
 
@@ -306,7 +308,11 @@ def get_cached_adsorption_sites(
     )
     motif = classify_top_layer_motif(atoms=atoms, atoms_per_layer=atoms_per_layer)
     cache_key = (host_element, motif)
-    can_reuse = supports_two_swap_motif_template_reuse(cfg=cfg, motif=motif)
+    can_reuse = supports_two_swap_motif_template_reuse(
+        cfg=cfg,
+        motif=motif,
+        atoms_per_layer=atoms_per_layer,
+    )
     if can_reuse and cache_key in motif_site_cache:
         return transfer_adsorption_site_template(
             structure=structure,
@@ -351,7 +357,11 @@ def get_adsorption_template_cache_details(
         atoms=atoms, atoms_per_layer=atoms_per_layer
     )
     motif = classify_top_layer_motif(atoms=atoms, atoms_per_layer=atoms_per_layer)
-    return supports_two_swap_motif_template_reuse(cfg=cfg, motif=motif), (
+    return supports_two_swap_motif_template_reuse(
+        cfg=cfg,
+        motif=motif,
+        atoms_per_layer=atoms_per_layer,
+    ), (
         host_element,
         motif,
     )
@@ -665,17 +675,19 @@ def get_adsorbate_structures(
         return []
     stats = AdsorbateGenerationStats(slabs_processed=len(slabs))
     stats.pymatgen_conversion_seconds += perf_counter() - conversion_start
-    atoms_per_layer = get_atoms_per_layer(cfg=cfg)
-    comparison_indices = get_adsorbate_comparison_indices(
-        atoms_per_layer=atoms_per_layer,
-        surface_layers=cfg.adsorbate.surface_layers_for_matching,
-        adsorbate_indices=get_adsorbate_indices(structure=slabs[0], adsorbate=adsorbate),
-        adsorbate_atoms_for_matching=1,
-    )
     motif_site_cache = {}
     adslab_id_source = count(1)
     atoms_list = []
     for slab_index, (atoms, slab) in enumerate(zip(source_atoms_list, slabs), start=1):
+        atoms_per_layer = get_metadata_atoms_per_layer(atoms)
+        comparison_indices = get_adsorbate_comparison_indices(
+            atoms_per_layer=atoms_per_layer,
+            surface_layers=cfg.adsorbate.surface_layers_for_matching,
+            adsorbate_indices=get_adsorbate_indices(
+                structure=slab, adsorbate=adsorbate
+            ),
+            adsorbate_atoms_for_matching=1,
+        )
         template_eligible, cache_key = get_adsorption_template_cache_details(
             cfg=cfg,
             atoms=atoms,

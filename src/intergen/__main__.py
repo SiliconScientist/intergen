@@ -8,9 +8,8 @@ from pymatgen.analysis.structure_matcher import StructureMatcher
 from intergen.config import get_config
 from intergen.surface import (
     build_pure_surfaces,
-    naive_surface_index_selector,
     iterative_swaps,
-    get_atoms_per_layer,
+    get_metadata_atoms_per_layer,
     get_swap_plans,
 )
 from intergen.adsorbate import get_adsorbate_structures
@@ -118,16 +117,15 @@ def main():
             return
     matcher = StructureMatcher(**cfg.adsorbate.matcher.model_dump())
     surface_generator = iterative_swaps
-    index_selector_fn = naive_surface_index_selector
-    swap_indices = index_selector_fn(cfg=cfg)
     slab_id_source = count(1)
     pure_atoms = build_pure_surfaces(cfg=cfg, slab_id_source=slab_id_source)
     atoms_list = get_initial_atoms_list(
         pure_atoms=pure_atoms,
         only_last_generation=cfg.generation.only_last_generation,
     )
-    atoms_per_layer = get_atoms_per_layer(cfg)
     for atoms in pure_atoms:
+        atoms_per_layer = get_metadata_atoms_per_layer(atoms)
+        swap_indices = list(range(atoms_per_layer * cfg.generation.layers_to_swap))
         host_element = atoms.get_chemical_symbols()[0]
         swap_plans = get_swap_plans(
             cfg=cfg,
