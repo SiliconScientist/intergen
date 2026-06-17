@@ -6,6 +6,7 @@ from tomllib import load
 
 
 class StructureConfig(BaseModel):
+    bcc_list: list[str]
     hcp_list: list[str]
     fcc_list: list[str]
     size: tuple[int, int, int]

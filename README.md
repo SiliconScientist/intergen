@@ -8,7 +8,7 @@ Generated slabs and adslabs carry explicit metadata in both `Atoms.info` and the
 Persisted slab provenance fields:
 - `slab_id`: unique slab identifier assigned during surface generation
 - `host_element`: majority top-layer host species for the slab family
-- `surface_type`: normalized surface label, currently `fcc111` or `hcp0001`
+- `surface_type`: normalized surface label, currently `fcc111`, `bcc111`, or `hcp0001`
 - `supercell_size`: slab supercell as `(x, y, z)`
 - `swap_indices`: top-layer substitution indices in generation order
 - `swap_elements`: substituted elements in generation order

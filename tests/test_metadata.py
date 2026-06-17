@@ -17,6 +17,7 @@ from intergen.metadata import (
     SLAB_ID_KEY,
     STRUCTURE_METADATA_FIELDS,
     SUPERCELL_SIZE_KEY,
+    SURFACE_TYPE_BCC111,
     SURFACE_TYPE_FCC111,
     SURFACE_TYPE_HCP0001,
     SURFACE_TYPE_KEY,
@@ -59,7 +60,10 @@ class TestMetadataSchema(unittest.TestCase):
         )
 
     def test_surface_types_are_normalized(self):
-        self.assertEqual(SURFACE_TYPES, (SURFACE_TYPE_FCC111, SURFACE_TYPE_HCP0001))
+        self.assertEqual(
+            SURFACE_TYPES,
+            (SURFACE_TYPE_FCC111, SURFACE_TYPE_HCP0001, SURFACE_TYPE_BCC111),
+        )
 
     def test_top_layer_motifs_are_normalized(self):
         self.assertEqual(

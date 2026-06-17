@@ -45,9 +45,11 @@ DB_METADATA_DATA_KEY: Final[str] = "structure_metadata"
 
 SURFACE_TYPE_FCC111: Final[str] = "fcc111"
 SURFACE_TYPE_HCP0001: Final[str] = "hcp0001"
+SURFACE_TYPE_BCC111: Final[str] = "bcc111"
 SURFACE_TYPES: Final[tuple[str, ...]] = (
     SURFACE_TYPE_FCC111,
     SURFACE_TYPE_HCP0001,
+    SURFACE_TYPE_BCC111,
 )
 
 TOP_LAYER_MOTIF_PURE: Final[str] = "pure"

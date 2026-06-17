@@ -1,4 +1,5 @@
 [structure]
+bcc_list = []
 hcp_list = []
 fcc_list = ["Pt"]
 size = [3, 3, 4]

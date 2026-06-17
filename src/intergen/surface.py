@@ -5,7 +5,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 from ase.atoms import Atoms
-from ase.build import fcc111, hcp0001
+from ase.build import bcc111, fcc111, hcp0001
 from pymatgen.core import Structure
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from pymatgen.io.ase import AseAtomsAdaptor
@@ -18,6 +18,7 @@ from intergen.metadata import (
     SUPERCELL_SIZE_KEY,
     SURFACE_TYPE_FCC111,
     SURFACE_TYPE_HCP0001,
+    SURFACE_TYPE_BCC111,
     SURFACE_TYPE_KEY,
     SWAP_ELEMENTS_KEY,
     SWAP_INDICES_KEY,
@@ -147,6 +148,23 @@ def build_pure_surfaces(
             slab_id=make_slab_id(slab_id_source),
             host_element=host,
             surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=cfg.structure.size,
+            top_layer_motif=TOP_LAYER_MOTIF_PURE,
+        )
+        pure_atoms.append(slab)
+
+    for host in cfg.structure.bcc_list:
+        slab = bcc111(
+            host,
+            size=cfg.structure.size,
+            vacuum=cfg.structure.vacuum,
+            a=lattice_constant_df.loc[host, "BCC_LatticeConstant_PBE+TS_1"],
+        )[::-1]
+        assign_slab_metadata(
+            slab,
+            slab_id=make_slab_id(slab_id_source),
+            host_element=host,
+            surface_type=SURFACE_TYPE_BCC111,
             supercell_size=cfg.structure.size,
             top_layer_motif=TOP_LAYER_MOTIF_PURE,
         )

@@ -67,6 +67,7 @@ def make_config(
 ):
     return Config(
         structure={
+            "bcc_list": [],
             "hcp_list": [],
             "fcc_list": ["Pt"],
             "size": size,

@@ -2,13 +2,14 @@ import unittest
 from itertools import count
 from unittest.mock import patch
 
-from ase.build import fcc111
+from ase.build import bcc111, fcc111
 
 from intergen.config import Config
 from intergen.metadata import (
     HOST_ELEMENT_KEY,
     SLAB_ID_KEY,
     SUPERCELL_SIZE_KEY,
+    SURFACE_TYPE_BCC111,
     SURFACE_TYPE_FCC111,
     SURFACE_TYPE_HCP0001,
     SURFACE_TYPE_KEY,
@@ -33,6 +34,7 @@ from intergen.surface import (
 def make_config():
     return Config(
         structure={
+            "bcc_list": ["Fe"],
             "hcp_list": ["Co"],
             "fcc_list": ["Cu"],
             "size": (2, 2, 3),
@@ -62,7 +64,7 @@ class TestSurfaceMetadata(unittest.TestCase):
 
         pure_atoms = build_pure_surfaces(cfg=cfg, slab_id_source=count(1))
 
-        self.assertEqual(len(pure_atoms), 2)
+        self.assertEqual(len(pure_atoms), 3)
 
         fcc_slab = pure_atoms[0]
         self.assertEqual(fcc_slab.info[SLAB_ID_KEY], "slab-000001")
@@ -73,8 +75,17 @@ class TestSurfaceMetadata(unittest.TestCase):
         self.assertEqual(fcc_slab.info[SWAP_ELEMENTS_KEY], [])
         self.assertEqual(fcc_slab.info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_PURE)
 
-        hcp_slab = pure_atoms[1]
-        self.assertEqual(hcp_slab.info[SLAB_ID_KEY], "slab-000002")
+        bcc_slab = pure_atoms[1]
+        self.assertEqual(bcc_slab.info[SLAB_ID_KEY], "slab-000002")
+        self.assertEqual(bcc_slab.info[HOST_ELEMENT_KEY], "Fe")
+        self.assertEqual(bcc_slab.info[SURFACE_TYPE_KEY], SURFACE_TYPE_BCC111)
+        self.assertEqual(bcc_slab.info[SUPERCELL_SIZE_KEY], (2, 2, 3))
+        self.assertEqual(bcc_slab.info[SWAP_INDICES_KEY], [])
+        self.assertEqual(bcc_slab.info[SWAP_ELEMENTS_KEY], [])
+        self.assertEqual(bcc_slab.info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_PURE)
+
+        hcp_slab = pure_atoms[2]
+        self.assertEqual(hcp_slab.info[SLAB_ID_KEY], "slab-000003")
         self.assertEqual(hcp_slab.info[HOST_ELEMENT_KEY], "Co")
         self.assertEqual(hcp_slab.info[SURFACE_TYPE_KEY], SURFACE_TYPE_HCP0001)
         self.assertEqual(hcp_slab.info[SUPERCELL_SIZE_KEY], (2, 2, 3))
@@ -115,6 +126,28 @@ class TestSurfaceMetadata(unittest.TestCase):
         self.assertEqual(atoms.info[SWAP_INDICES_KEY], [])
         self.assertEqual(atoms.info[SWAP_ELEMENTS_KEY], [])
 
+    def test_enumerate_unique_swaps_preserves_bcc_surface_type(self):
+        atoms = bcc111("Fe", size=(2, 2, 3), vacuum=10.0)[::-1]
+        assign_slab_metadata(
+            atoms,
+            slab_id="slab-000010",
+            host_element="Fe",
+            surface_type=SURFACE_TYPE_BCC111,
+            supercell_size=(2, 2, 3),
+        )
+
+        with patch("intergen.surface.id_unique_sites", return_value=[0]):
+            swapped_atoms = enumerate_unique_swaps(
+                atoms=atoms,
+                host_element="Fe",
+                indices=[0, 1],
+                element="Cu",
+                slab_id_source=count(11),
+            )
+
+        self.assertEqual(len(swapped_atoms), 1)
+        self.assertEqual(swapped_atoms[0].info[SURFACE_TYPE_KEY], SURFACE_TYPE_BCC111)
+
     def test_iterative_swaps_preserves_and_accumulates_swap_metadata(self):
         cfg = make_config()
         slab_id_source = count(1)
@@ -134,14 +167,14 @@ class TestSurfaceMetadata(unittest.TestCase):
         self.assertEqual(len(swapped_atoms), 2)
         first_generation, second_generation = swapped_atoms
 
-        self.assertEqual(first_generation.info[SLAB_ID_KEY], "slab-000003")
+        self.assertEqual(first_generation.info[SLAB_ID_KEY], "slab-000004")
         self.assertEqual(first_generation.info[SWAP_INDICES_KEY], [0])
         self.assertEqual(first_generation.info[SWAP_ELEMENTS_KEY], ["Ni"])
         self.assertEqual(
             first_generation.info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_SINGLE_SWAP
         )
 
-        self.assertEqual(second_generation.info[SLAB_ID_KEY], "slab-000004")
+        self.assertEqual(second_generation.info[SLAB_ID_KEY], "slab-000005")
         self.assertEqual(second_generation.info[SWAP_INDICES_KEY], [0, 1])
         self.assertEqual(second_generation.info[SWAP_ELEMENTS_KEY], ["Ni", "Zn"])
         self.assertEqual(
