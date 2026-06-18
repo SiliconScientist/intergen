@@ -401,6 +401,8 @@ def iterative_swaps(
 ) -> list[Atoms]:
     if slab_id_source is None:
         slab_id_source = count(1)
+    if not swap_plan:
+        return [atoms.copy()]
     all_atoms = []
     current_generation = [atoms]
     comparison_indices = range(atoms_per_layer)

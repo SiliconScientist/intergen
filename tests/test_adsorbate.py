@@ -83,7 +83,7 @@ def make_config(
             "matcher": {"ltol": 0.05, "stol": 0.1, "angle_tol": 5.0},
             "species": "N",
             "coords": [(0.0, 0.0, 0.0)],
-            "sites": ["hollow"],
+            "sites": None,
             "tag": 0,
             "surface_layers_for_matching": surface_layers_for_matching,
             "reuse_site_templates_for_two_swap_motifs": (
@@ -484,6 +484,14 @@ class TestHollowSiteRegistry(unittest.TestCase):
         atoms = fcc111(host, size=size, vacuum=10.0)[::-1]
         atoms.set_tags([0] * len(atoms))
         atoms.set_pbc(True)
+        assign_slab_metadata(
+            atoms,
+            slab_id="slab-000001",
+            host_element=host,
+            surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=size,
+            top_layer_motif="pure",
+        )
         return atoms
 
     @classmethod
@@ -630,13 +638,13 @@ class TestHollowSiteRegistry(unittest.TestCase):
             cfg=self.cfg,
             structure=target_structure,
             adsorbate=self.adsorbate,
-            site_coordinates=direct_sites,
+            site_coordinates={site_name: direct_sites[site_name]},
         )
         transferred_structures = apply_adsorption_sites(
             cfg=self.cfg,
             structure=target_structure,
             adsorbate=self.adsorbate,
-            site_coordinates=transferred_sites,
+            site_coordinates={site_name: transferred_sites[site_name]},
         )
         unique_direct_structures = self._get_unique_adsorbate_structures(
             direct_structures
@@ -725,12 +733,12 @@ class TestHollowSiteRegistry(unittest.TestCase):
         )
 
         one_layer_structures = deduplicate_adsorption_structures(
-            structures=self.split_structures,
+            structures=self.hollow_structures,
             comparison_indices=one_layer_indices,
             matcher=self.matcher,
         )
         two_layer_structures = deduplicate_adsorption_structures(
-            structures=self.split_structures,
+            structures=self.hollow_structures,
             comparison_indices=two_layer_indices,
             matcher=self.matcher,
         )
@@ -751,7 +759,10 @@ class TestHollowSiteRegistry(unittest.TestCase):
 
         output = stdout.getvalue()
 
-        self.assertEqual(len(structures), 2)
+        self.assertEqual(
+            len(structures),
+            len(self._get_unique_adsorbate_structures(self.split_structures)),
+        )
         self.assertIn("Adsorbate generation stats:", output)
         self.assertIn("slabs=1", output)
         self.assertIn("site_finder_calls=1", output)
@@ -1299,6 +1310,14 @@ class TestHollowSiteRegistry(unittest.TestCase):
     def test_unsupported_surface_size_uses_exact_path_and_preserves_results(self):
         large_atoms = fcc111("Pt", size=(2, 3, 4), vacuum=10.0)[::-1]
         large_atoms.set_tags([0] * len(large_atoms))
+        assign_slab_metadata(
+            large_atoms,
+            slab_id="slab-000001",
+            host_element="Pt",
+            surface_type=SURFACE_TYPE_FCC111,
+            supercell_size=(2, 3, 4),
+            top_layer_motif="pure",
+        )
         large_adsorbate = Molecule(
             ["N"], [[0.0, 0.0, 0.0]], site_properties={"tags": [0]}
         )

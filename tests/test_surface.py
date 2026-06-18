@@ -181,6 +181,26 @@ class TestSurfaceMetadata(unittest.TestCase):
             classify_top_layer_motif(second_generation, atoms_per_layer=4),
         )
 
+    def test_iterative_swaps_returns_pure_structure_for_empty_swap_plan(self):
+        cfg = make_config()
+        pure_atoms = build_pure_surfaces(cfg=cfg, slab_id_source=count(1))
+
+        swapped_atoms = iterative_swaps(
+            atoms=pure_atoms[0],
+            host_element="Cu",
+            swap_plan=[],
+            indices=[0, 1],
+            atoms_per_layer=4,
+            only_last_generation=True,
+        )
+
+        self.assertEqual(len(swapped_atoms), 1)
+        self.assertIsNot(swapped_atoms[0], pure_atoms[0])
+        self.assertEqual(swapped_atoms[0].info[SLAB_ID_KEY], pure_atoms[0].info[SLAB_ID_KEY])
+        self.assertEqual(
+            swapped_atoms[0].info[TOP_LAYER_MOTIF_KEY], TOP_LAYER_MOTIF_PURE
+        )
+
     def test_classify_top_layer_motif_distinguishes_heterodimer(self):
         atoms = fcc111("Pt", size=(3, 3, 3), vacuum=10.0)[::-1]
         atoms = swap_atoms(atoms, 0, "Cu")
