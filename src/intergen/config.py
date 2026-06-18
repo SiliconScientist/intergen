@@ -40,7 +40,7 @@ class AdsorbateConfig(BaseModel):
     matcher: MatcherConfig
     species: str
     coords: list[tuple[float, float, float]]
-    sites: list[str]
+    sites: list[str] | None = None
     tag: int
     surface_layers_for_matching: int
     reuse_site_templates_for_two_swap_motifs: bool = True

@@ -23,6 +23,7 @@ Persisted adslab fields:
 
 Notes:
 - `initial_site_label` reflects what the generator actually knows at placement time. Today that can include generic `hollow` in addition to `top`, `bridge`, `fcc_hollow`, and `hcp_hollow`.
+- Adsorption-site placement follows whatever supported site classes `AdsorbateSiteFinder` actually returns for a slab. The config no longer needs a manual site list.
 - Metadata is written twice on purpose:
   - scalar/query-friendly values are written as ASE DB row key-value pairs
   - the full typed metadata payload is also stored in row `data["structure_metadata"]` for clean round-trips of tuples and lists

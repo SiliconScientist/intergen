@@ -11,6 +11,7 @@ from pymatgen.analysis.adsorption import AdsorbateSiteFinder
 from pymatgen.analysis.structure_matcher import StructureMatcher
 from intergen.config import Config
 from intergen.metadata import (
+    ADSORPTION_SITE_LABELS,
     ADSLAB_ID_KEY,
     ADSORBATE_KEY,
     INITIAL_SITE_COORDINATE_KEY,
@@ -206,6 +207,19 @@ def discover_adsorption_sites(
     return site_coordinates
 
 
+def iter_discovered_adsorption_sites(site_coordinates: dict[str, list]):
+    for site, coordinates in site_coordinates.items():
+        try:
+            normalized_site = normalize_adsorption_site_label(site)
+        except ValueError:
+            continue
+        if normalized_site not in ADSORPTION_SITE_LABELS:
+            continue
+        if not coordinates:
+            continue
+        yield site, coordinates
+
+
 def apply_adsorption_site_records(
     cfg: Config,
     structure,
@@ -214,8 +228,8 @@ def apply_adsorption_site_records(
 ) -> list[AdsorbedStructureRecord]:
     site_finder = AdsorbateSiteFinder(slab=structure)
     structure_records = []
-    for site in cfg.adsorbate.sites:
-        for ads_coords in site_coordinates[site]:
+    for site, coordinates in iter_discovered_adsorption_sites(site_coordinates):
+        for ads_coords in coordinates:
             adsorbed_structure = site_finder.add_adsorbate(
                 molecule=adsorbate, ads_coord=ads_coords
             )
@@ -478,8 +492,8 @@ def flatten_adsorption_site_coordinates(
     site_coordinates: dict[str, list[np.ndarray]],
 ) -> list[tuple[str, np.ndarray]]:
     flattened_coordinates = []
-    for site in cfg.adsorbate.sites:
-        for coordinate in site_coordinates.get(site, []):
+    for site, coordinates in iter_discovered_adsorption_sites(site_coordinates):
+        for coordinate in coordinates:
             flattened_coordinates.append((site, np.asarray(coordinate)))
     return flattened_coordinates
 
