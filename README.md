@@ -4,6 +4,8 @@ Intergen systematically generates distinct alloy surface structures and candidat
 
 Using crystal symmetry and structural matching, Intergen reduces equivalent arrangements and produces traceable starting geometries for subsequent calculations.
 
+For a single host metal, choosing two different dopants from 21 elements yielded 14,700 binding configurations. Across Ag, Au, Pd, and Pt hosts, this produced 58,800 configurations.
+
 Intergen was used to generate the trimetallic surface and binding-site dataset for [*Few-Shot Ensemble Learning for Catalysis and Application to Trimetallics for Oxygen Reduction*](https://doi.org/10.1021/acscatal.5c08168) (Hill, Ruiz-Escudero, and Montemore, 2026). Its contribution is structure generation; the publication’s energy predictions and screening results require calculations outside this repository.
 
 ![Top and oblique views of an Intergen-generated Pt–Cu–Ag slab with a nitrogen adsorbate; Pt is gray, Cu orange, Ag purple, and N blue; hatching marks the fixed bottom two layers.](docs/images/pt-cu-ag-n.png)
