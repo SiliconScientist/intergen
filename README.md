@@ -10,15 +10,6 @@ Intergen was used to generate the trimetallic surface and binding-site dataset f
 
 *An Intergen-generated Pt(111) slab with neighboring Cu and Ag substitutions and N placed atop Cu. Hatching marks the bottom two layers fixed by Intergen. This is an unrelaxed starting geometry, not a prediction of stable adsorption. [Structure and rendering details](docs/images/README.md).*
 
-```mermaid
-flowchart LR
-    A[Choose host metals and substitutions] --> B[Build surface slabs]
-    B --> C[Reduce equivalent alloy arrangements]
-    C --> D[Find sites and place adsorbate]
-    D --> E[Reduce equivalent binding environments]
-    E --> F[ASE database with provenance and constraints]
-```
-
 ## Capabilities
 
 - Build periodic slabs—thin crystal models of a surface—for face-centered cubic (111), body-centered cubic (111), and hexagonal close-packed (0001) surfaces.
