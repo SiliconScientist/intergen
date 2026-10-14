@@ -1,10 +1,14 @@
 # Intergen
 
-A catalyst’s behavior depends on which atoms surround the place where a molecule binds. For alloys containing three metals, changing both the metal identities and their arrangement creates many possible binding environments. Building these structures by hand makes systematic comparison difficult and can repeat equivalent sites or miss distinct ones.
+Intergen systematically generates distinct alloy surface structures and candidate adsorption sites—the places where an atom or molecule can bind. These local atomic arrangements matter because a catalyst’s behavior depends on the atoms surrounding a binding site. For three-metal alloys, changing metal identities and positions creates many environments to compare.
 
-Intergen generates alloy surface models and places an adsorbate—an atom or molecule bound to a surface—at distinct candidate binding sites. It uses crystal symmetry and structural matching to reduce equivalent arrangements, producing a traceable collection of starting geometries for subsequent calculations.
+Using crystal symmetry and structural matching, Intergen reduces equivalent arrangements and produces traceable starting geometries for subsequent calculations.
 
 Intergen was used to generate the trimetallic surface and binding-site dataset for [*Few-Shot Ensemble Learning for Catalysis and Application to Trimetallics for Oxygen Reduction*](https://doi.org/10.1021/acscatal.5c08168) (Hill, Ruiz-Escudero, and Montemore, 2026). Its contribution is structure generation; the publication’s energy predictions and screening results require calculations outside this repository.
+
+![Top and oblique views of an Intergen-generated Pt–Cu–Ag slab with a nitrogen adsorbate; Pt is gray, Cu orange, Ag purple, and N blue; hatching marks the fixed bottom two layers.](docs/images/pt-cu-ag-n.png)
+
+*An Intergen-generated Pt(111) slab with neighboring Cu and Ag substitutions and N placed atop Cu. Hatching marks the bottom two layers fixed by Intergen. This is an unrelaxed starting geometry, not a prediction of stable adsorption. [Structure and rendering details](docs/images/README.md).*
 
 ```mermaid
 flowchart LR
@@ -79,6 +83,10 @@ Start with the [documentation index](docs/README.md) for configuration, scientif
 
 ## Related projects
 
-Intergen supplies candidate geometries. [Oasis](https://github.com/SiliconScientist/oasis) focuses on experiments that refine predictions from machine-learned interatomic potentials using sparse reference data. Oasis identifies [Moirai](https://github.com/SiliconScientist/Moirai) (referred to as Moira) as its related project for model ingestion and prediction.
+| Project | Role |
+| --- | --- |
+| **Intergen** | Generates candidate atomic structures. |
+| [**Moira**](https://github.com/SiliconScientist/Moirai) | Runs machine-learned interatomic potential predictions. |
+| [**Oasis**](https://github.com/SiliconScientist/oasis) | Evaluates and adapts predictions using limited reference data. |
 
-These are complementary roles, not an automated pipeline provided by Intergen. This repository writes ASE databases and contains no direct Oasis or Moirai integration; transferring structures, predictions, and identifiers requires a separately configured workflow.
+These projects have complementary roles but do not form an automatically integrated pipeline; connecting their workflows requires separate setup.
